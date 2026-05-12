@@ -1,2 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+# Determine repo root (parent of this script's directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Activate conda environment
+eval "$(conda shell.bash hook)"
 conda activate pps
-python ./pps-main/train.py --config-path ./pps-main/config/activitynet/config_refact.json --ckpt-path ./pps-main/checkpoints/activitynet/model_refact.pt --eval
+
+python "${REPO_ROOT}/pps-main/train.py" \
+    --config-path "${REPO_ROOT}/pps-main/config/activitynet/config_refact.json" \
+    --ckpt-path "${REPO_ROOT}/pps-main/checkpoints/activitynet/model_refact.pt" \
+    --eval

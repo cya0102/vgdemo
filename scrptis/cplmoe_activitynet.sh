@@ -1,2 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+# Determine repo root (parent of this script's directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Activate conda environment
+eval "$(conda shell.bash hook)"
 conda activate cpl
-python ./cplmoe-main/train.py --config-path /data/chenyuan/vgdemo/cplmoe-main/config/activitynet/main_moe.json --resume /data/chenyuan/vgdemo/cplmoe-main/checkpoints/activitynet_moe/model-best.pt --eval --vote
+
+python "${REPO_ROOT}/cplmoe-main/train_moe.py" \
+    --config-path "${REPO_ROOT}/cplmoe-main/config/activitynet/main_moe.json" \
+    --resume "${REPO_ROOT}/cplmoe-main/checkpoints/activitynet_moe/model-best.pt" \
+    --eval --vote
