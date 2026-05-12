@@ -367,27 +367,35 @@ HTML = """<!DOCTYPE html>
   .container { max-width: 640px; margin: 0 auto; }
   h1 { font-size: 1.5rem; margin-bottom: 24px; color: #1a1a1a; }
   .card { background: #fff; border-radius: 8px; padding: 24px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
   label { display: block; font-weight: 600; margin-bottom: 6px; font-size: .875rem; }
   input[type="file"], input[type="text"] { width: 100%; padding: 10px 12px;
     border: 1px solid #ddd; border-radius: 6px; font-size: .9rem; margin-bottom: 16px; }
   button { width: 100%; padding: 12px; background: #2563eb; color: #fff;
     border: none; border-radius: 6px; font-size: 1rem; font-weight: 600;
-    cursor: pointer; transition: background .15s; }
+    cursor: pointer; }
   button:hover { background: #1d4ed8; }
   button:disabled { background: #93c5fd; cursor: not-allowed; }
-  .result { margin-top: 20px; padding: 16px; border-radius: 6px; display: none; }
-  .result.success { background: #ecfdf5; border: 1px solid #a7f3d0; display: block; }
-  .result.error { background: #fef2f2; border: 1px solid #fecaca; display: block; }
-  .result .interval { font-size: 1.5rem; font-weight: 700; color: #065f46; }
-  .result .meta { font-size: .8rem; color: #6b7280; margin-top: 8px; }
-  .result.error .msg { color: #991b1b; }
-  .spinner { display: none; text-align: center; padding: 16px; color: #6b7280; }
+
+  /* Result card - always visible */
+  .result-card { background: #fff; border-radius: 8px; padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .result-card h2 { font-size: 1rem; color: #6b7280; margin-bottom: 16px; font-weight: 600; }
+  .result-empty { color: #9ca3af; text-align: center; padding: 20px 0; font-size: .875rem; }
+  .result-success .interval-box { background: #ecfdf5; border: 2px solid #059669;
+    border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 12px; }
+  .result-success .timestamp { font-size: 2rem; font-weight: 700; color: #065f46;
+    font-family: 'SF Mono', 'Menlo', monospace; }
+  .result-success .meta { font-size: .8rem; color: #6b7280; line-height: 1.6; }
+  .result-error { color: #dc2626; text-align: center; padding: 20px 0; font-size: .875rem; }
+  .spinner-box { text-align: center; padding: 20px 0; color: #6b7280; font-size: .875rem; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>CPL Temporal Video Grounding</h1>
+
+  <!-- Input card -->
   <div class="card">
     <form id="form">
       <label for="video">Video file</label>
@@ -395,21 +403,24 @@ HTML = """<!DOCTYPE html>
 
       <label for="query">Text query</label>
       <input type="text" id="query" name="query"
-             placeholder="e.g. a person is running"
-             required>
+             placeholder="e.g. a person is running" required>
 
       <button type="submit" id="submit-btn">Find segment</button>
     </form>
+  </div>
 
-    <div id="spinner" class="spinner">Running inference...</div>
-    <div id="result" class="result"></div>
+  <!-- Result card - always visible -->
+  <div class="result-card">
+    <h2>Result</h2>
+    <div id="result-area">
+      <div class="result-empty">Submit a video and text query to see the predicted time segment.</div>
+    </div>
   </div>
 </div>
 
 <script>
 const form = document.getElementById('form');
-const result = document.getElementById('result');
-const spinner = document.getElementById('spinner');
+const resultArea = document.getElementById('result-area');
 const btn = document.getElementById('submit-btn');
 
 form.addEventListener('submit', async (e) => {
@@ -419,8 +430,7 @@ form.addEventListener('submit', async (e) => {
   if (!video || !query) return;
 
   btn.disabled = true;
-  spinner.style.display = 'block';
-  result.className = 'result';
+  resultArea.innerHTML = '<div class="spinner-box">Running inference...</div>';
 
   const data = new FormData();
   data.append('video', video);
@@ -428,31 +438,28 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const resp = await fetch('/predict', { method: 'POST', body: data });
-    const text = await resp.text();
-    console.log('Response status:', resp.status);
-    console.log('Response body:', text);
-    const json = JSON.parse(text);
+    const json = await resp.json();
     if (resp.ok && json.success) {
-      result.className = 'result success';
-      result.innerHTML =
-        '<div class="interval">[' + json.interval[0] + ', ' + json.interval[1] + ']</div>' +
-        '<div class="meta">' +
-          'Video: ' + json.video_name + ' &middot; ' +
-          'Duration: ' + json.duration + 's &middot; ' +
-          'Dataset: ' + json.dataset + ' &middot; ' +
-          'Selection: ' + json.selection +
+      resultArea.innerHTML =
+        '<div class="result-success">' +
+          '<div class="interval-box">' +
+            '<div class="timestamp">[' + json.interval[0] + 's &mdash; ' + json.interval[1] + 's]</div>' +
+          '</div>' +
+          '<div class="meta">' +
+            '<strong>Video:</strong> ' + json.video_name + '<br>' +
+            '<strong>Duration:</strong> ' + json.duration + 's &emsp;' +
+            '<strong>Dataset:</strong> ' + json.dataset + '<br>' +
+            '<strong>Query:</strong> "' + json.query + '" &emsp;' +
+            '<strong>Method:</strong> ' + json.selection +
+          '</div>' +
         '</div>';
     } else {
-      result.className = 'result error';
-      result.innerHTML = '<div class="msg">' + (json.detail || text || 'Unknown error') + '</div>';
+      resultArea.innerHTML = '<div class="result-error">' + (json.detail || 'Unknown error') + '</div>';
     }
   } catch (err) {
-    result.className = 'result error';
-    result.innerHTML = '<div class="msg">' + err.message + '</div>';
-    console.error('Error:', err);
+    resultArea.innerHTML = '<div class="result-error">Request failed: ' + err.message + '</div>';
   } finally {
     btn.disabled = false;
-    spinner.style.display = 'none';
   }
 });
 </script>
