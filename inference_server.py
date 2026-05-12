@@ -190,6 +190,10 @@ def load_model(config_path: str, vocab_path: str, checkpoint_path: str):
 
     keep_vocab = build_vocab_mapping(vocab, dataset_cfg["vocab_size"])
 
+    # Inject runtime config fields (normally set by Runner._build_model)
+    model_cfg["config"]["vocab_size"] = len(keep_vocab) + 1
+    model_cfg["config"]["max_epoch"] = config["train"]["max_num_epochs"]
+
     # Build model
     model = CPL(model_cfg["config"])
     model = model.to(DEVICE)
