@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 import h5py
 import nltk
@@ -90,7 +91,7 @@ def process_query(query: str, vocab: dict, keep_vocab: dict):
     return words_id, np.array(words_feat, dtype=np.float32), np.array(weights, dtype=np.float32)
 
 
-def load_and_sample_features(hdf5_path: str, video_id: str, feature_key: str | None):
+def load_and_sample_features(hdf5_path: str, video_id: str, feature_key: Optional[str]):
     """Load frame features from HDF5 and sample to MAX_NUM_FRAMES."""
     with h5py.File(hdf5_path, "r") as fr:
         if feature_key:
