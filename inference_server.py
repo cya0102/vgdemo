@@ -88,7 +88,11 @@ def process_query(query: str, vocab: dict, keep_vocab: dict):
     words_feat.extend(
         vocab["id2vec"][vocab["w2id"][w]].astype(np.float32) for w in words
     )
-    return words_id, np.array(words_feat, dtype=np.float32), np.array(weights, dtype=np.float32)
+    # softmax-normalize weights (matching build_collate_data)
+    weights_arr = np.array(weights, dtype=np.float32)
+    weights_arr = np.exp(weights_arr)
+    weights_arr = weights_arr / weights_arr.sum()
+    return words_id, np.array(words_feat, dtype=np.float32), weights_arr
 
 
 def load_and_sample_features(hdf5_path: str, video_id: str, feature_key: Optional[str]):
