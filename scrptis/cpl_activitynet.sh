@@ -1,0 +1,2 @@
+conda activate cpl
+python ./cpl-main/train.py --config-path /data/chenyuan/vgdemo/cpl-main/config/activitynet/main.json --resume /data/chenyuan/vgdemo/cpl-main/checkpoints/activitynet/model-best.pt --eval --vote

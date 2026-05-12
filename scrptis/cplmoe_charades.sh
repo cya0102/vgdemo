@@ -1,0 +1,2 @@
+conda activate cpl
+python ./cplmoe-main/train.py --config-path /data/chenyuan/vgdemo/cplmoe-main/config/charades/main_moe.json --resume /data/chenyuan/vgdemo/cplmoe-main/checkpoints/charades_moe/model-best.pt --eval

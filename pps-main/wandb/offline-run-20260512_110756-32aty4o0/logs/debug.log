@@ -1,0 +1,29 @@
+2026-05-12 11:07:56,634 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Current SDK version is 0.15.2
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Configure stats pid to 40270
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Loading settings from /home/chenyuan/.config/wandb/settings
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Loading settings from /data/chenyuan/vgdemo/pps-main/wandb/settings
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Loading settings from environment variables: {}
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Inferring run settings from compute environment: {'program_relpath': 'train.py', 'program': '/data/chenyuan/vgdemo/pps-main/train.py'}
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_setup.py:_flush():76] Applying login settings: {'mode': 'offline'}
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:_log_setup():507] Logging user logs to ./wandb/offline-run-20260512_110756-32aty4o0/logs/debug.log
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:_log_setup():508] Logging internal logs to ./wandb/offline-run-20260512_110756-32aty4o0/logs/debug-internal.log
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:init():547] calling init triggers
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:init():554] wandb.init called with sweep_config: {}
+config: {'exp_name': 'exp-charades', 'dataset': {'name': 'CharadesSTA', 'feature_path': '/data/chenyuan/videogrounding/cpl-main/data/charades/i3d_features.hdf5', 'train_data': 'data/charades/train.json', 'test_data': 'data/charades/test.json', 'vocab_path': 'data/charades/glove.pkl', 'vocab_size': 1111, 'max_num_words': 20, 'max_num_segments': 200, 'frame_feat_dim': 1024, 'word_feat_dim': 300}, 'train': {'wandb_path': './', 'log_path': './log', 'save_path': './checkpoints/charades/exp-charades_2026-05-12_11-07-46', 'batch_size': 32, 'num_epochs': 30, 'use_wandb': True, 'save_model': True, 'optimizer': {'lr': 0.0004, 'weight_decay': 0, 'warmup_updates': 400, 'warmup_init_lr': 1e-07}}, 'model': {'name': 'PPS', 'frame_feat_dim': 1024, 'word_feat_dim': 300, 'hidden_dim': 256, 'dropout': 0.1, 'masked_words_ratio': 3, 'mask_type': 'gaussian', 'num_props': 7, 'sigma_gauss': 9, 'sigma_laplace': 9, 'num_neg_mask': 3, 'sigma_neg_inv_gauss': 1, 'sigma_neg_gauss': 9, 'use_attn': True, 'pred_gamma': 0, 'neg_type': 'learnable_gaussian', 'DualTransformer': {'d_model': 256, 'num_heads': 4, 'num_decoder_layers1': 3, 'num_decoder_layers2': 3, 'dropout': 0.1}, 'max_num_words': 20, 'vocab_size': 1112, 'max_epoch': 30}, 'loss': {'margin_hneg': 0.1, 'margin_eneg': 0.15, 'lambda_inter_push': 0.15, 'lambda_intra_push': 0.15, 'alpha_ivc': 3, 'alpha_pull': 5, 'alpha_inter_push': 1, 'alpha_intra_push': 0.001, 'num_train_prop': 1}, 'config_path': 'config/charades/config.json'}
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:init():596] starting backend
+2026-05-12 11:07:56,635 INFO    MainThread:40270 [wandb_init.py:init():600] setting up manager
+2026-05-12 11:07:56,637 INFO    MainThread:40270 [backend.py:_multiprocessing_setup():106] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2026-05-12 11:07:56,640 INFO    MainThread:40270 [wandb_init.py:init():606] backend started and connected
+2026-05-12 11:07:56,644 INFO    MainThread:40270 [wandb_init.py:init():700] updated telemetry
+2026-05-12 11:07:56,645 INFO    MainThread:40270 [wandb_init.py:init():787] starting run threads in backend
+2026-05-12 11:07:59,083 INFO    MainThread:40270 [wandb_run.py:_console_start():2158] atexit reg
+2026-05-12 11:07:59,083 INFO    MainThread:40270 [wandb_run.py:_redirect():2013] redirect: SettingsConsole.WRAP_RAW
+2026-05-12 11:07:59,083 INFO    MainThread:40270 [wandb_run.py:_redirect():2078] Wrapping output streams.
+2026-05-12 11:07:59,084 INFO    MainThread:40270 [wandb_run.py:_redirect():2103] Redirects installed.
+2026-05-12 11:07:59,084 INFO    MainThread:40270 [wandb_init.py:init():829] run started, returning control to user process
+2026-05-12 12:54:34,032 INFO    MainThread:40270 [wandb_run.py:_finish():1893] finishing run PPS_CharadesSTA/32aty4o0
+2026-05-12 12:54:34,032 INFO    MainThread:40270 [wandb_run.py:_atexit_cleanup():2127] got exitcode: 0
+2026-05-12 12:54:34,032 INFO    MainThread:40270 [wandb_run.py:_restore():2110] restore
+2026-05-12 12:54:34,032 INFO    MainThread:40270 [wandb_run.py:_restore():2116] restore done
+2026-05-12 12:54:35,152 INFO    MainThread:40270 [wandb_run.py:_footer_history_summary_info():3469] rendering history
+2026-05-12 12:54:35,154 INFO    MainThread:40270 [wandb_run.py:_footer_history_summary_info():3501] rendering summary

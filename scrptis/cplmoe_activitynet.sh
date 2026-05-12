@@ -1,0 +1,2 @@
+conda activate cpl
+python ./cplmoe-main/train.py --config-path /data/chenyuan/vgdemo/cplmoe-main/config/activitynet/main_moe.json --resume /data/chenyuan/vgdemo/cplmoe-main/checkpoints/activitynet_moe/model-best.pt --eval --vote

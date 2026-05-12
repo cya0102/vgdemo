@@ -1,0 +1,9 @@
+*.pyc
+__pycache__
+checkpoints/activitynet/base
+checkpoints/activitynet/old_vocab
+checkpoints/charades/base
+*.hdf5
+*.pt
+*.md
+*.pdf

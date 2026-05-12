@@ -1,0 +1,2 @@
+conda activate cpl
+python ./cpl-main/train.py --config-path /data/chenyuan/vgdemo/cpl-main/config/charades/main.json --resume /data/chenyuan/vgdemo/cpl-main/checkpoints/charades/model-best.pt --eval --vote

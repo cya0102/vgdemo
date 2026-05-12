@@ -1,0 +1,67 @@
+{
+  "dataset": {
+    "dataset": "ActivityNet",
+    "feature_path": "/data/chenyuan/videogrounding/cpl-main/data/activitynet/sub_activitynet_v1-3.c3d.hdf5",
+    "vocab_size": 1111,
+    "word_dim": 300,
+    "frame_dim": 500,
+    "max_num_words": 40,
+    "max_num_frames": 200,
+    "target_stride": 1,
+    "train_data": "data/activitynet/train_data.json",
+    "test_data": "data/activitynet/test_data.json",
+    "val_data": "data/activitynet/val_data.json",
+    "vocab_path": "data/activitynet/glove.pkl"
+  },
+  "train": {
+    "optimizer": {
+      "lr": 4e-4,
+      "weight_decay": 0,
+      "warmup_updates": 400,
+      "warmup_init_lr": 1e-7
+    },
+    "batch_size": 32,
+    "max_num_epochs": 30,
+    "model_saved_path": "checkpoints/activitynet_moe/"
+  },
+  "model": {
+    "name": "CPL_MoE",
+    "source": "models",
+    "config": {
+      "frames_input_size": 500,
+      "words_input_size": 300,
+      "hidden_size": 256,
+      "use_negative": true,
+      "num_props": 8,
+      "sigma": 9,
+      "gamma": 0.5,
+      "dropout": 0.1,
+      "DualTransformer": {
+        "d_model": 256,
+        "num_heads": 4,
+        "num_decoder_layers1": 3,
+        "num_decoder_layers2": 3,
+        "dropout": 0.1
+      },
+      "MoE": {
+        "use_moe": true,
+        "use_simple_moe": false,
+        "num_experts": 8,
+        "num_shared_experts": 2,
+        "top_k": 2,
+        "use_load_balance_loss": true,
+        "load_balance_weight": 0.01,
+        "use_2layer_gate": true
+      }
+    }
+  },
+  "loss": {
+    "margin_1": 0.1,
+    "margin_2": 0.2,
+    "lambda": 0.124,
+    "alpha_1": 1,
+    "alpha_2": 5,
+    "use_width_reg": false,
+    "width_lambda": 0.05
+  }
+}
