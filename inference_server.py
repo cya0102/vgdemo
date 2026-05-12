@@ -362,106 +362,267 @@ HTML = """<!DOCTYPE html>
 <title>CPL Video Grounding</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #f5f5f5; color: #333; padding: 40px 20px; }
-  .container { max-width: 640px; margin: 0 auto; }
-  h1 { font-size: 1.5rem; margin-bottom: 24px; color: #1a1a1a; }
-  .card { background: #fff; border-radius: 8px; padding: 24px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px; }
-  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: .875rem; }
-  input[type="file"], input[type="text"] { width: 100%; padding: 10px 12px;
-    border: 1px solid #ddd; border-radius: 6px; font-size: .9rem; margin-bottom: 16px; }
-  button { width: 100%; padding: 12px; background: #2563eb; color: #fff;
-    border: none; border-radius: 6px; font-size: 1rem; font-weight: 600;
-    cursor: pointer; }
-  button:hover { background: #1d4ed8; }
-  button:disabled { background: #93c5fd; cursor: not-allowed; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8fafc 50%, #f0fdf4 100%);
+    color: #1e293b; min-height: 100vh; padding: 40px 20px;
+  }
+  .container { max-width: 680px; margin: 0 auto; }
 
-  /* Result card - always visible */
-  .result-card { background: #fff; border-radius: 8px; padding: 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  .result-card h2 { font-size: 1rem; color: #6b7280; margin-bottom: 16px; font-weight: 600; }
-  .result-empty { color: #9ca3af; text-align: center; padding: 20px 0; font-size: .875rem; }
-  .result-success .interval-box { background: #ecfdf5; border: 2px solid #059669;
-    border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 12px; }
-  .result-success .timestamp { font-size: 2rem; font-weight: 700; color: #065f46;
-    font-family: 'SF Mono', 'Menlo', monospace; }
-  .result-success .meta { font-size: .8rem; color: #6b7280; line-height: 1.6; }
-  .result-error { color: #dc2626; text-align: center; padding: 20px 0; font-size: .875rem; }
-  .spinner-box { text-align: center; padding: 20px 0; color: #6b7280; font-size: .875rem; }
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
+    border-radius: 12px; padding: 28px 32px; margin-bottom: 24px;
+    box-shadow: 0 4px 20px rgba(37,99,235,.25);
+  }
+  .header h1 { font-size: 1.4rem; color: #fff; font-weight: 700; letter-spacing: -.01em; }
+  .header p { color: rgba(255,255,255,.75); font-size: .85rem; margin-top: 4px; }
+
+  /* Cards */
+  .card {
+    background: #fff; border-radius: 12px; padding: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    margin-bottom: 20px; border: 1px solid #e2e8f0;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed #cbd5e1; border-radius: 10px; padding: 28px;
+    text-align: center; cursor: pointer; transition: all .2s;
+    background: #f8fafc; margin-bottom: 18px;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: #3b82f6; background: #eff6ff;
+  }
+  .upload-zone .icon { font-size: 2rem; margin-bottom: 8px; }
+  .upload-zone .text { color: #64748b; font-size: .875rem; }
+  .upload-zone .file-name { color: #1e40af; font-weight: 600; font-size: .85rem; margin-top: 6px; }
+  .upload-zone input[type="file"] { display: none; }
+
+  /* Query input */
+  label { display: block; font-weight: 600; margin-bottom: 6px; font-size: .8rem;
+    color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+  .query-input {
+    width: 100%; padding: 12px 16px; border: 1.5px solid #e2e8f0;
+    border-radius: 10px; font-size: .95rem; margin-bottom: 18px; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .query-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+
+  /* Button */
+  button {
+    width: 100%; padding: 14px; border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.3);
+  }
+  button:hover { box-shadow: 0 4px 16px rgba(37,99,235,.4); transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+  button:disabled {
+    background: #cbd5e1; color: #94a3b8; box-shadow: none;
+    cursor: not-allowed; animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+  /* Result card */
+  .result-card { background: #fff; border-radius: 12px; padding: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    border: 1px solid #e2e8f0; }
+  .result-card h2 { font-size: .8rem; color: #64748b; margin-bottom: 18px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+
+  /* States */
+  .result-empty { color: #94a3b8; text-align: center; padding: 32px 0; font-size: .9rem; }
+  .spinner-box { text-align: center; padding: 32px 0; color: #64748b; font-size: .9rem; }
+  .result-error { color: #dc2626; text-align: center; padding: 24px 0; font-size: .9rem;
+    background: #fef2f2; border-radius: 8px; }
+
+  /* Success */
+  .result-success .timestamp-box {
+    background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
+    border: 2px solid #10b981; border-radius: 12px; padding: 24px;
+    text-align: center; margin-bottom: 20px;
+  }
+  .result-success .timestamp {
+    font-size: 1.75rem; font-weight: 700; color: #065f46;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  .result-success .timestamp .sep { color: #10b981; }
+
+  /* Timeline */
+  .timeline { margin-bottom: 20px; }
+  .timeline .track {
+    position: relative; height: 32px; background: #f1f5f9;
+    border-radius: 16px; overflow: hidden;
+  }
+  .timeline .track .fill {
+    position: absolute; top: 0; height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #6366f1);
+    border-radius: 16px; transition: all .3s;
+  }
+  .timeline .track .handle {
+    position: absolute; top: -3px; width: 10px; height: 38px;
+    background: #fff; border: 2.5px solid #3b82f6; border-radius: 5px;
+    z-index: 2;
+  }
+  .timeline .labels {
+    display: flex; justify-content: space-between; font-size: .75rem;
+    color: #94a3b8; margin-top: 6px; padding: 0 4px;
+  }
+  .timeline .markers {
+    position: relative; height: 18px; margin-top: 2px;
+  }
+  .timeline .markers .marker {
+    position: absolute; font-size: .7rem; color: #3b82f6; font-weight: 600;
+    transform: translateX(-50%); white-space: nowrap;
+  }
+
+  /* Meta grid */
+  .meta-grid {
+    display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
+    font-size: .82rem; line-height: 1.7;
+  }
+  .meta-grid .key { color: #64748b; font-weight: 500; white-space: nowrap; }
+  .meta-grid .val { color: #1e293b; word-break: break-all; }
+  .meta-grid .val .tag {
+    display: inline-block; background: #eff6ff; color: #3b82f6;
+    padding: 1px 8px; border-radius: 4px; font-size: .75rem; font-weight: 600;
+  }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>CPL Temporal Video Grounding</h1>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Temporal Video Grounding</h1>
+    <p>CPL: Contrastive Proposal Learning &mdash; Single Video Inference</p>
+  </div>
 
   <!-- Input card -->
   <div class="card">
     <form id="form">
-      <label for="video">Video file</label>
-      <input type="file" id="video" name="video" accept="video/*" required>
+      <label>Video file</label>
+      <div class="upload-zone" id="upload-zone">
+        <div class="icon">&#x1F3AC;</div>
+        <div class="text">Click or drag video file here</div>
+        <div class="file-name" id="file-name"></div>
+        <input type="file" id="video" name="video" accept="video/*" required>
+      </div>
 
       <label for="query">Text query</label>
-      <input type="text" id="query" name="query"
-             placeholder="e.g. a person is running" required>
+      <input type="text" id="query" name="query" class="query-input"
+             placeholder="Describe the moment you want to find, e.g. a person is running" required>
 
-      <button type="submit" id="submit-btn">Find segment</button>
+      <button type="submit" id="submit-btn">Find Segment</button>
     </form>
   </div>
 
-  <!-- Result card - always visible -->
+  <!-- Result card -->
   <div class="result-card">
     <h2>Result</h2>
     <div id="result-area">
-      <div class="result-empty">Submit a video and text query to see the predicted time segment.</div>
+      <div class="result-empty">Upload a video and enter a text query, then click Find Segment.</div>
     </div>
   </div>
+
 </div>
 
 <script>
-const form = document.getElementById('form');
-const resultArea = document.getElementById('result-area');
-const btn = document.getElementById('submit-btn');
+var uploadedFileName = '';
 
-form.addEventListener('submit', async (e) => {
+// Upload zone interactions
+var zone = document.getElementById('upload-zone');
+var fileInput = document.getElementById('video');
+var fileNameEl = document.getElementById('file-name');
+
+zone.addEventListener('click', function() { fileInput.click(); });
+zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+zone.addEventListener('drop', function(e) {
+  e.preventDefault(); zone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    updateFileName();
+  }
+});
+fileInput.addEventListener('change', updateFileName);
+function updateFileName() {
+  uploadedFileName = fileInput.files[0] ? fileInput.files[0].name : '';
+  fileNameEl.textContent = uploadedFileName || '';
+}
+
+// Form submit
+var form = document.getElementById('form');
+var resultArea = document.getElementById('result-area');
+var btn = document.getElementById('submit-btn');
+
+form.addEventListener('submit', function(e) {
   e.preventDefault();
-  const video = document.getElementById('video').files[0];
-  const query = document.getElementById('query').value;
+  var video = fileInput.files[0];
+  var query = document.getElementById('query').value;
   if (!video || !query) return;
 
   btn.disabled = true;
-  resultArea.innerHTML = '<div class="spinner-box">Running inference...</div>';
+  btn.textContent = 'Running...';
+  resultArea.innerHTML = '<div class="spinner-box">Running inference &hellip;</div>';
 
-  const data = new FormData();
+  var data = new FormData();
   data.append('video', video);
   data.append('query', query);
 
-  try {
-    const resp = await fetch('/predict', { method: 'POST', body: data });
-    const json = await resp.json();
-    if (resp.ok && json.success) {
-      resultArea.innerHTML =
-        '<div class="result-success">' +
-          '<div class="interval-box">' +
-            '<div class="timestamp">[' + json.interval[0] + 's &mdash; ' + json.interval[1] + 's]</div>' +
-          '</div>' +
-          '<div class="meta">' +
-            '<strong>Video:</strong> ' + json.video_name + '<br>' +
-            '<strong>Duration:</strong> ' + json.duration + 's &emsp;' +
-            '<strong>Dataset:</strong> ' + json.dataset + '<br>' +
-            '<strong>Query:</strong> "' + json.query + '" &emsp;' +
-            '<strong>Method:</strong> ' + json.selection +
-          '</div>' +
-        '</div>';
-    } else {
-      resultArea.innerHTML = '<div class="result-error">' + (json.detail || 'Unknown error') + '</div>';
-    }
-  } catch (err) {
-    resultArea.innerHTML = '<div class="result-error">Request failed: ' + err.message + '</div>';
-  } finally {
-    btn.disabled = false;
-  }
+  fetch('/predict', { method: 'POST', body: data })
+    .then(function(resp) { return resp.json().then(function(json) { return {ok: resp.ok, json: json}; }); })
+    .then(function(r) {
+      if (r.ok && r.json.success) { showResult(r.json); }
+      else { resultArea.innerHTML = '<div class="result-error">' + (r.json.detail || 'Unknown error') + '</div>'; }
+    })
+    .catch(function(err) {
+      resultArea.innerHTML = '<div class="result-error">Request failed: ' + err.message + '</div>';
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = 'Find Segment';
+    });
 });
+
+function showResult(json) {
+  var dur = json.duration;
+  var start = json.interval[0];
+  var end = json.interval[1];
+  var leftPct = (start / dur * 100).toFixed(1);
+  var widthPct = ((end - start) / dur * 100).toFixed(1);
+
+  resultArea.innerHTML =
+    '<div class="result-success">' +
+      '<div class="timestamp-box">' +
+        '<div class="timestamp">' +
+          start.toFixed(2) + 's  <span class="sep">&mdash;</span>  ' + end.toFixed(2) + 's' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="timeline">' +
+        '<div class="track">' +
+          '<div class="fill" style="left:' + leftPct + '%;width:' + widthPct + '%;"></div>' +
+          '<div class="handle" style="left:' + leftPct + '%;"></div>' +
+          '<div class="handle" style="left:' + (parseFloat(leftPct) + parseFloat(widthPct)) + '%;"></div>' +
+        '</div>' +
+        '<div class="labels"><span>0s</span><span>' + dur.toFixed(0) + 's</span></div>' +
+        '<div class="markers">' +
+          '<div class="marker" style="left:' + leftPct + '%;">' + start.toFixed(1) + 's</div>' +
+          '<div class="marker" style="left:' + (parseFloat(leftPct) + parseFloat(widthPct)) + '%;">' + end.toFixed(1) + 's</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="meta-grid">' +
+        '<span class="key">Video</span><span class="val">' + json.video_name + '</span>' +
+        '<span class="key">Duration</span><span class="val">' + dur.toFixed(2) + 's</span>' +
+        '<span class="key">Dataset</span><span class="val"><span class="tag">' + json.dataset + '</span></span>' +
+        '<span class="key">Query</span><span class="val">&ldquo;' + json.query + '&rdquo;</span>' +
+        '<span class="key">Method</span><span class="val"><span class="tag">' + json.selection + '</span></span>' +
+      '</div>' +
+    '</div>';
+}
 </script>
 </body>
 </html>"""
