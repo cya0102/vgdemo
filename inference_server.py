@@ -8,7 +8,7 @@ import json
 import pickle
 import shutil
 import subprocess
-import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -217,19 +217,27 @@ def load_model(config_path: str, vocab_path: str, checkpoint_path: str):
     }
 
 
+# ── Cache dirs ─────────────────────────────────────────────────────────────
+
+CACHE_VIDEOS = REPO_ROOT / "cache" / "videos"
+CACHE_RESULTS = REPO_ROOT / "cache" / "results"
+
+
 # ── FastAPI App ────────────────────────────────────────────────────────────
 
 app = FastAPI(title="CPL Video Grounding", version="0.1.0")
 
 # Globals set in startup
 MODELS = {}
-DATASETS = {}  # video_name_prefix → dataset key
 
 
 @app.on_event("startup")
 def startup():
     """Load both ActivityNet and Charades models."""
     print(f"Using device: {DEVICE}")
+
+    CACHE_VIDEOS.mkdir(parents=True, exist_ok=True)
+    CACHE_RESULTS.mkdir(parents=True, exist_ok=True)
 
     # ActivityNet
     print("Loading ActivityNet model...")
@@ -277,65 +285,71 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     feature_path = model_info["feature_path"]
     feature_key = model_info["feature_key"]
 
-    # 2. Save uploaded video to temp file, get duration
-    tmp_path = None
+    # 2. Save uploaded video to cache
+    ts = str(int(time.time() * 1000))
+    safe_name = f"{ts}_{filename}"
+    cached_video_path = CACHE_VIDEOS / safe_name
+    with open(cached_video_path, "wb") as f:
+        shutil.copyfileobj(video.file, f)
+
+    # 3. Get duration via ffprobe
     try:
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-            shutil.copyfileobj(video.file, tmp)
-            tmp_path = tmp.name
+        duration = get_video_duration(str(cached_video_path))
+    except RuntimeError:
+        raise HTTPException(400, "Failed to read video duration from file")
 
-        try:
-            duration = get_video_duration(tmp_path)
-        except RuntimeError:
-            raise HTTPException(400, "Failed to read video duration from file")
+    # 4. Load features
+    try:
+        frames_feat = load_and_sample_features(feature_path, video_id, feature_key)
+    except KeyError:
+        raise HTTPException(400, f"Video '{video_id}' not found in feature file")
 
-        # 3. Load features
-        try:
-            frames_feat = load_and_sample_features(feature_path, video_id, feature_key)
-        except KeyError:
-            raise HTTPException(400, f"Video '{video_id}' not found in feature file")
+    # 5. Process query
+    try:
+        words_id, words_feat, weights = process_query(query, vocab, keep_vocab)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
-        # 4. Process query
-        try:
-            words_id, words_feat, weights = process_query(query, vocab, keep_vocab)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+    # 6. Inference
+    words_len_val = len(words_id)
+    batch = {
+        "frames_feat": torch.from_numpy(frames_feat).unsqueeze(0).to(DEVICE),
+        "frames_len": torch.tensor([MAX_NUM_FRAMES]).to(DEVICE),
+        "words_feat": torch.from_numpy(words_feat).unsqueeze(0).to(DEVICE),
+        "words_id": torch.tensor(words_id).unsqueeze(0).to(DEVICE),
+        "words_len": torch.tensor([words_len_val]).to(DEVICE),
+        "weights": torch.from_numpy(weights).unsqueeze(0).to(DEVICE),
+    }
 
-        # 5. Inference
-        words_len_val = len(words_id)
-        batch = {
-            "frames_feat": torch.from_numpy(frames_feat).unsqueeze(0).to(DEVICE),
-            "frames_len": torch.tensor([MAX_NUM_FRAMES]).to(DEVICE),
-            "words_feat": torch.from_numpy(words_feat).unsqueeze(0).to(DEVICE),
-            "words_id": torch.tensor(words_id).unsqueeze(0).to(DEVICE),
-            "words_len": torch.tensor([words_len_val]).to(DEVICE),
-            "weights": torch.from_numpy(weights).unsqueeze(0).to(DEVICE),
-        }
+    with torch.no_grad():
+        output = model(epoch=0, **batch)
 
-        with torch.no_grad():
-            output = model(epoch=0, **batch)
+    # 7. Select best proposal
+    use_vote = (dataset == "activitynet")
+    start_norm, end_norm = select_best_proposal(output, use_vote=use_vote)
 
-        # 6. Select best proposal
-        use_vote = (dataset == "activitynet")
-        start_norm, end_norm = select_best_proposal(output, use_vote=use_vote)
+    # 8. Convert to real timestamps
+    start_time = start_norm * duration
+    end_time = end_norm * duration
 
-        # 7. Convert to real timestamps
-        start_time = start_norm * duration
-        end_time = end_norm * duration
+    result = {
+        "success": True,
+        "video_name": filename,
+        "video_id": video_id,
+        "dataset": dataset,
+        "query": query,
+        "interval": [round(start_time, 2), round(end_time, 2)],
+        "duration": round(duration, 2),
+        "selection": "vote" if use_vote else "loss",
+        "cached_video": str(cached_video_path),
+    }
 
-        return {
-            "success": True,
-            "video_name": filename,
-            "video_id": video_id,
-            "dataset": dataset,
-            "interval": [round(start_time, 2), round(end_time, 2)],
-            "duration": round(duration, 2),
-            "selection": "vote" if use_vote else "loss",
-        }
+    # 9. Save result JSON
+    json_name = f"{ts}_{video_id}.json"
+    with open(CACHE_RESULTS / json_name, "w") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
 
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    return result
 
 
 # ── HTML Page ──────────────────────────────────────────────────────────────
@@ -407,6 +421,7 @@ form.addEventListener('submit', async (e) => {
   btn.disabled = true;
   spinner.style.display = 'block';
   result.style.display = 'none';
+  result.className = 'result';
 
   const data = new FormData();
   data.append('video', video);
@@ -414,24 +429,28 @@ form.addEventListener('submit', async (e) => {
 
   try {
     const resp = await fetch('/predict', { method: 'POST', body: data });
-    const json = await resp.json();
+    const text = await resp.text();
+    console.log('Response status:', resp.status);
+    console.log('Response body:', text);
+    const json = JSON.parse(text);
     if (resp.ok && json.success) {
       result.className = 'result success';
-      result.innerHTML = `
-        <div class="interval">[${json.interval[0]}, ${json.interval[1]}]</div>
-        <div class="meta">
-          Video: ${json.video_name} &middot;
-          Duration: ${json.duration}s &middot;
-          Dataset: ${json.dataset} &middot;
-          Selection: ${json.selection}
-        </div>`;
+      result.innerHTML =
+        '<div class="interval">[' + json.interval[0] + ', ' + json.interval[1] + ']</div>' +
+        '<div class="meta">' +
+          'Video: ' + json.video_name + ' &middot; ' +
+          'Duration: ' + json.duration + 's &middot; ' +
+          'Dataset: ' + json.dataset + ' &middot; ' +
+          'Selection: ' + json.selection +
+        '</div>';
     } else {
       result.className = 'result error';
-      result.innerHTML = `<div class="msg">${json.detail || 'Unknown error'}</div>`;
+      result.innerHTML = '<div class="msg">' + (json.detail || text || 'Unknown error') + '</div>';
     }
   } catch (err) {
     result.className = 'result error';
-    result.innerHTML = `<div class="msg">Request failed: ${err.message}</div>`;
+    result.innerHTML = '<div class="msg">' + err.message + '</div>';
+    console.error('Error:', err);
   } finally {
     btn.disabled = false;
     spinner.style.display = 'none';
