@@ -2,6 +2,7 @@
 CPL Single Video Inference Server (FastAPI)
 Serves a web UI for temporal video grounding with CPL model.
 """
+import hashlib
 import os
 import sys
 import json
@@ -278,6 +279,16 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     dataset = identify_dataset(filename)
     video_id = Path(filename).stem
 
+    # 2. Hash video content + query to form cache key
+    video_bytes = await video.read()
+    cache_key = hashlib.md5(video_bytes + query.encode()).hexdigest()
+
+    # Check if result already cached
+    cached_json = CACHE_RESULTS / f"{cache_key}.json"
+    if cached_json.exists():
+        with open(cached_json) as f:
+            return json.load(f)
+
     model_info = MODELS[dataset]
     model = model_info["model"]
     vocab = model_info["vocab"]
@@ -285,32 +296,30 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     feature_path = model_info["feature_path"]
     feature_key = model_info["feature_key"]
 
-    # 2. Save uploaded video to cache
-    ts = str(int(time.time() * 1000))
-    safe_name = f"{ts}_{filename}"
-    cached_video_path = CACHE_VIDEOS / safe_name
+    # 3. Save video to cache (only if new combination)
+    cached_video_path = CACHE_VIDEOS / f"{cache_key}_{filename}"
     with open(cached_video_path, "wb") as f:
-        shutil.copyfileobj(video.file, f)
+        f.write(video_bytes)
 
-    # 3. Get duration via ffprobe
+    # 4. Get duration via ffprobe
     try:
         duration = get_video_duration(str(cached_video_path))
     except RuntimeError:
         raise HTTPException(400, "Failed to read video duration from file")
 
-    # 4. Load features
+    # 5. Load features
     try:
         frames_feat = load_and_sample_features(feature_path, video_id, feature_key)
     except KeyError:
         raise HTTPException(400, f"Video '{video_id}' not found in feature file")
 
-    # 5. Process query
+    # 6. Process query
     try:
         words_id, words_feat, weights = process_query(query, vocab, keep_vocab)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # 6. Inference
+    # 7. Inference
     words_len_val = len(words_id)
     batch = {
         "frames_feat": torch.from_numpy(frames_feat).unsqueeze(0).to(DEVICE),
@@ -324,11 +333,11 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     with torch.no_grad():
         output = model(epoch=0, **batch)
 
-    # 7. Select best proposal
+    # 8. Select best proposal
     use_vote = (dataset == "activitynet")
     start_norm, end_norm = select_best_proposal(output, use_vote=use_vote)
 
-    # 8. Convert to real timestamps
+    # 9. Convert to real timestamps
     start_time = start_norm * duration
     end_time = end_norm * duration
 
@@ -344,9 +353,8 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
         "cached_video": str(cached_video_path),
     }
 
-    # 9. Save result JSON
-    json_name = f"{ts}_{video_id}.json"
-    with open(CACHE_RESULTS / json_name, "w") as f:
+    # 10. Save result JSON
+    with open(cached_json, "w") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
     return result
