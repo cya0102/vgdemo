@@ -420,7 +420,6 @@ form.addEventListener('submit', async (e) => {
 
   btn.disabled = true;
   spinner.style.display = 'block';
-  result.style.display = 'none';
   result.className = 'result';
 
   const data = new FormData();
