@@ -99,6 +99,16 @@ bash scrptis/pps_activitynet.sh
 # etc.
 ```
 
+### Single-video inference server
+
+```bash
+# Requires cpl conda environment
+conda activate cpl
+python inference_server.py   # serves at http://localhost:8000
+```
+
+FastAPI server with inline HTML UI. Upload a video file + enter a query text to get predicted time segments. Auto-detects dataset by filename (`v_` prefix → ActivityNet vote-based, otherwise → Charades loss-based). Uses ffprobe to read video duration. Model loads at startup (ActivityNet + Charades CPL models).
+
 ## Data
 
 Feature files (C3D/I3D HDF5) and GloVe embeddings are not stored in this repo. They live at `/data/chenyuan/vgdemo/` (referenced by scrptis scripts and config files). Each project's `config/` JSON files contain dataset paths that may need adjustment for local use.
