@@ -3,9 +3,9 @@
   "dataset": {
     "name": "ActivityNet",
     "feature_path": "/data/chenyuan/videogrounding/cpl-main/data/activitynet/sub_activitynet_v1-3.c3d.hdf5",
-    "train_data": "data/activitynet/train_data.json",
-    "test_data": "data/activitynet/test_data.json",
-    "vocab_path": "data/activitynet/glove.pkl",
+    "train_data": "/data/chenyuan/vgdemo/pps-main/data/activitynet/train_data.json",
+    "test_data": "/data/chenyuan/vgdemo/pps-main/data/activitynet/test_data.json",
+    "vocab_path": "/data/chenyuan/vgdemo/pps-main/data/activitynet/glove.pkl",
     "vocab_size": 8000,
     "max_num_words": 20,
     "max_num_segments": 200

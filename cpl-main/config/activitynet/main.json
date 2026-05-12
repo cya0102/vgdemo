@@ -8,10 +8,10 @@
     "max_num_words": 20,
     "max_num_frames": 200,
     "target_stride": 1,
-    "train_data": "data/activitynet/train_data.json",
-    "test_data": "data/activitynet/test_data.json",
-    "val_data": "data/activitynet/val_data.json",
-    "vocab_path": "data/activitynet/glove.pkl"
+    "train_data": "/data/chenyuan/vgdemo/cpl-main/data/activitynet/train_data.json",
+    "test_data": "/data/chenyuan/vgdemo/cpl-main/data/activitynet/test_data.json",
+    "val_data": "/data/chenyuan/vgdemo/cpl-main/data/activitynet/val_data.json",
+    "vocab_path": "/data/chenyuan/vgdemo/cpl-main/data/activitynet/glove.pkl"
   },
   "train": {
     "optimizer": {

@@ -3,9 +3,9 @@
   "dataset": {
     "name": "CharadesSTA",
     "feature_path": "/data/chenyuan/videogrounding/cpl-main/data/charades/i3d_features.hdf5",
-    "train_data": "data/charades/train.json",
-    "test_data": "data/charades/test.json",
-    "vocab_path": "data/charades/glove.pkl",
+    "train_data": "/data/chenyuan/vgdemo/pps-main/data/charades/train.json",
+    "test_data": "/data/chenyuan/vgdemo/pps-main/data/charades/test.json",
+    "vocab_path": "/data/chenyuan/vgdemo/pps-main/data/charades/glove.pkl",
     "vocab_size": 1111,
     "max_num_words": 20,
     "max_num_segments": 200

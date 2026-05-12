@@ -11,5 +11,5 @@ conda activate pps
 
 python "${REPO_ROOT}/pps-main/train.py" \
     --config-path "${REPO_ROOT}/pps-main/config/charades/config.json" \
-    --ckpt-path "${REPO_ROOT}/pps-main/checkpoints/charades/model.pt" \
+    --ckpt-path "${REPO_ROOT}/pps-main/checkpoints/charades/model-best.pt" \
     --eval

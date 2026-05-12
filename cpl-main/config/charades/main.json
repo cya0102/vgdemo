@@ -8,10 +8,10 @@
     "max_num_words": 20,
     "max_num_frames": 200,
     "target_stride": 1,
-    "train_data": "data/charades/train.json",
-    "test_data": "data/charades/test.json",
-    "val_data": "data/charades/test.json",
-    "vocab_path": "data/charades/glove.pkl"
+    "train_data": "/data/chenyuan/vgdemo/cpl-main/data/charades/train.json",
+    "test_data": "/data/chenyuan/vgdemo/cpl-main/data/charades/test.json",
+    "val_data": "/data/chenyuan/vgdemo/cpl-main/data/charades/test.json",
+    "vocab_path": "/data/chenyuan/vgdemo/cpl-main/data/charades/glove.pkl"
   },
   "train": {
     "optimizer": {

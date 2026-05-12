@@ -11,5 +11,5 @@ conda activate pps
 
 python "${REPO_ROOT}/pps-main/train.py" \
     --config-path "${REPO_ROOT}/pps-main/config/activitynet/config_refact.json" \
-    --ckpt-path "${REPO_ROOT}/pps-main/checkpoints/activitynet/model_refact.pt" \
+    --ckpt-path "${REPO_ROOT}/pps-main/checkpoints/activitynet/model-best.pt" \
     --eval
