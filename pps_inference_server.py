@@ -211,9 +211,10 @@ def load_pps_model(config_path: str):
 
     keep_vocab = build_vocab_mapping(vocab, dataset_cfg["vocab_size"])
 
-    # Inject runtime config fields
+    # Inject runtime config fields (matching PPS train.py)
     model_cfg["vocab_size"] = len(keep_vocab) + 1
     model_cfg["max_epoch"] = train_cfg["num_epochs"]
+    model_cfg["max_num_words"] = dataset_cfg["max_num_words"]
 
     # Build model (PPS config is flat, no nested "config" key)
     model = PPS(model_cfg)
