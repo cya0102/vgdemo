@@ -1,6 +1,7 @@
 """
-CPL Single Video Inference Server (FastAPI)
-Serves a web UI for temporal video grounding with CPL model.
+Video Grounding Inference Server (FastAPI)
+Serves web UI for CPL & CPL-MoE models on port 8100.
+PPS model served on port 8200 via pps_inference_server.py.
 """
 import hashlib
 import os
@@ -18,14 +19,17 @@ import nltk
 import numpy as np
 import torch
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent
 CPL_ROOT = REPO_ROOT / "cpl-main"
+CPLMOE_ROOT = REPO_ROOT / "cplmoe-main"
 sys.path.insert(0, str(CPL_ROOT))
+sys.path.insert(0, str(CPLMOE_ROOT))
 
 from models.cpl import CPL
+from models.cpl_moe import CPL_MoE
 from models.loss import cal_nll_loss
 
 # ── Device ─────────────────────────────────────────────────────────────────
@@ -34,11 +38,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ── Constants ──────────────────────────────────────────────────────────────
 MAX_NUM_FRAMES = 200
 MAX_NUM_WORDS = 20
+PPS_PORT = 8200
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def get_video_duration(filepath: str) -> float:
-    """Read video duration in seconds using ffprobe."""
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", filepath],
@@ -50,7 +54,6 @@ def get_video_duration(filepath: str) -> float:
 
 
 def build_vocab_mapping(vocab: dict, vocab_size: int) -> dict:
-    """Build word→id mapping, matching BaseDataset.keep_vocab."""
     keep_vocab = {}
     for w, _ in vocab["counter"].most_common(vocab_size):
         keep_vocab[w] = len(keep_vocab) + 1
@@ -58,7 +61,6 @@ def build_vocab_mapping(vocab: dict, vocab_size: int) -> dict:
 
 
 def process_query(query: str, vocab: dict, keep_vocab: dict):
-    """Tokenize query and build word features, matching BaseDataset.__getitem__."""
     weights = []
     words = []
     for word, tag in nltk.pos_tag(nltk.tokenize.word_tokenize(query)):
@@ -75,7 +77,6 @@ def process_query(query: str, vocab: dict, keep_vocab: dict):
             weights.append(1)
         words.append(word)
 
-    # Truncate
     words = words[:MAX_NUM_WORDS]
     weights = weights[:MAX_NUM_WORDS]
 
@@ -84,12 +85,11 @@ def process_query(query: str, vocab: dict, keep_vocab: dict):
 
     words_id = [keep_vocab[w] for w in words]
     words_feat = [
-        vocab["id2vec"][vocab["w2id"][words[0]]].astype(np.float32)  # placeholder for start token
+        vocab["id2vec"][vocab["w2id"][words[0]]].astype(np.float32)
     ]
     words_feat.extend(
         vocab["id2vec"][vocab["w2id"][w]].astype(np.float32) for w in words
     )
-    # softmax-normalize weights (matching build_collate_data)
     weights_arr = np.array(weights, dtype=np.float32)
     weights_arr = np.exp(weights_arr)
     weights_arr = weights_arr / weights_arr.sum()
@@ -97,7 +97,6 @@ def process_query(query: str, vocab: dict, keep_vocab: dict):
 
 
 def load_and_sample_features(hdf5_path: str, video_id: str, feature_key: Optional[str]):
-    """Load frame features from HDF5 and sample to MAX_NUM_FRAMES."""
     with h5py.File(hdf5_path, "r") as fr:
         if feature_key:
             frames_feat = np.asarray(fr[video_id][feature_key]).astype(np.float32)
@@ -120,7 +119,6 @@ def load_and_sample_features(hdf5_path: str, video_id: str, feature_key: Optiona
 
 
 def calculate_IoU_batch(i0, i1):
-    """Vectorized IoU between two sets of intervals."""
     union = (np.min(np.stack([i0[0], i1[0]], 0), 0),
              np.max(np.stack([i0[1], i1[1]], 0), 0))
     inter = (np.max(np.stack([i0[0], i1[0]], 0), 0),
@@ -132,7 +130,7 @@ def calculate_IoU_batch(i0, i1):
 
 
 def select_best_proposal(output: dict, use_vote: bool):
-    """Select best proposal from model output. Returns (start, end) in [0,1]."""
+    """Select best proposal from CPL/CPL-MoE output. Returns (start, end) in [0,1]."""
     bsz = 1
     num_props = output["center"].shape[0] // bsz
 
@@ -154,7 +152,7 @@ def select_best_proposal(output: dict, use_vote: bool):
     selected_props = torch.stack([
         torch.clamp(center - width / 2, min=0),
         torch.clamp(center + width / 2, max=1),
-    ], dim=-1).cpu().numpy()  # (1, num_props, 2)
+    ], dim=-1).cpu().numpy()
 
     if use_vote:
         c = np.ones((bsz, num_props))
@@ -173,21 +171,24 @@ def select_best_proposal(output: dict, use_vote: bool):
     return float(selected_props[0, best_idx, 0]), float(selected_props[0, best_idx, 1])
 
 
-# ── Model loader ───────────────────────────────────────────────────────────
+# ── Model loader (CPL & CPL-MoE share the same logic) ──────────────────────
 
-def load_model(config_path: str, vocab_path: str, checkpoint_path: str):
-    """Load CPL model, vocab, and keep_vocab mapping."""
+def load_model(config_path: str, vocab_path: str, checkpoint_path: str,
+               model_cls, root: Path):
+    """Load a CPL or CPL-MoE model, vocab, and keep_vocab mapping."""
     with open(config_path) as f:
         config = json.load(f)
 
     dataset_cfg = config["dataset"]
     model_cfg = config["model"]
-    loss_cfg = config["loss"]
 
-    # Resolve relative paths (config paths are relative to cpl-main/)
-    vocab_path = str(CPL_ROOT / vocab_path)
-    feature_path = str(CPL_ROOT / dataset_cfg["feature_path"]) if not os.path.isabs(dataset_cfg["feature_path"]) else dataset_cfg["feature_path"]
-    checkpoint_path = str(CPL_ROOT / checkpoint_path) if not os.path.isabs(checkpoint_path) else checkpoint_path
+    # Resolve relative paths (config paths are relative to model root/)
+    vocab_path = str(root / vocab_path)
+    feature_path = dataset_cfg["feature_path"]
+    if not os.path.isabs(feature_path):
+        feature_path = str(root / feature_path)
+    if not os.path.isabs(checkpoint_path):
+        checkpoint_path = str(root / checkpoint_path)
 
     # Load vocab
     with open(vocab_path, "rb") as f:
@@ -195,12 +196,12 @@ def load_model(config_path: str, vocab_path: str, checkpoint_path: str):
 
     keep_vocab = build_vocab_mapping(vocab, dataset_cfg["vocab_size"])
 
-    # Inject runtime config fields (normally set by Runner._build_model)
+    # Inject runtime config fields
     model_cfg["config"]["vocab_size"] = len(keep_vocab) + 1
     model_cfg["config"]["max_epoch"] = config["train"]["max_num_epochs"]
 
     # Build model
-    model = CPL(model_cfg["config"])
+    model = model_cls(model_cfg["config"])
     model = model.to(DEVICE)
     model.eval()
 
@@ -208,13 +209,15 @@ def load_model(config_path: str, vocab_path: str, checkpoint_path: str):
     state_dict = torch.load(checkpoint_path, map_location=DEVICE, weights_only=False)
     model.load_state_dict(state_dict["model_parameters"])
 
+    dataset_name = dataset_cfg.get("dataset", dataset_cfg.get("name", "ActivityNet"))
     return {
         "model": model,
         "vocab": vocab,
         "keep_vocab": keep_vocab,
         "feature_path": feature_path,
-        "feature_key": "c3d_features" if dataset_cfg["dataset"] == "ActivityNet" else None,
-        "dataset_name": dataset_cfg["dataset"],
+        "feature_key": "c3d_features" if dataset_name == "ActivityNet" else None,
+        "dataset_name": dataset_name,
+        "model_name": model_cfg["name"],
     }
 
 
@@ -226,42 +229,67 @@ CACHE_RESULTS = REPO_ROOT / "cache" / "results"
 
 # ── FastAPI App ────────────────────────────────────────────────────────────
 
-app = FastAPI(title="CPL Video Grounding", version="0.1.0")
+app = FastAPI(title="Video Grounding Inference", version="2.0.0")
 
-# Globals set in startup
-MODELS = {}
+MODELS = {}  # key: "cpl_activitynet", "cplmoe_charades", etc.
+
+
+def _model_key(model_type: str, dataset: str) -> str:
+    return f"{model_type}_{dataset}"
+
+
+def _load_if_needed(model_type: str, dataset: str):
+    """Lazy-load a model on first request."""
+    key = _model_key(model_type, dataset)
+    if key in MODELS:
+        return
+
+    if model_type == "cpl":
+        root = CPL_ROOT
+        cls = CPL
+        configs = {
+            "activitynet": "config/activitynet/main.json",
+            "charades": "config/charades/main.json",
+        }
+        checkpoints = {
+            "activitynet": "checkpoints/activitynet/model-best.pt",
+            "charades": "checkpoints/charades/model-best.pt",
+        }
+    else:  # cplmoe
+        root = CPLMOE_ROOT
+        cls = CPL_MoE
+        configs = {
+            "activitynet": "config/activitynet/main_moe.json",
+            "charades": "config/charades/main_moe.json",
+        }
+        checkpoints = {
+            "activitynet": "checkpoints/activitynet_moe/model-best.pt",
+            "charades": "checkpoints/charades_moe/model-best.pt",
+        }
+
+    dc = dataset
+    vocab_path = f"data/{'activitynet' if dc == 'activitynet' else 'charades'}/glove.pkl"
+    print(f"Loading {model_type.upper()} {dc} model...")
+    MODELS[key] = load_model(
+        config_path=str(root / configs[dc]),
+        vocab_path=vocab_path,
+        checkpoint_path=checkpoints[dc],
+        model_cls=cls,
+        root=root,
+    )
+    print(f"  {model_type.upper()} {dc} loaded.")
 
 
 @app.on_event("startup")
 def startup():
-    """Load both ActivityNet and Charades models."""
-    print(f"Using device: {DEVICE}")
-
+    print(f"Using device: {DEVICE} | CPL+CPL-MoE on port 8100 | PPS on port {PPS_PORT}")
     CACHE_VIDEOS.mkdir(parents=True, exist_ok=True)
     CACHE_RESULTS.mkdir(parents=True, exist_ok=True)
-
-    # ActivityNet
-    print("Loading ActivityNet model...")
-    MODELS["activitynet"] = load_model(
-        config_path=str(CPL_ROOT / "config/activitynet/main.json"),
-        vocab_path="data/activitynet/glove.pkl",
-        checkpoint_path="checkpoints/activitynet/model-best.pt",
-    )
-    print("  ActivityNet model loaded.")
-
-    # Charades
-    print("Loading Charades model...")
-    MODELS["charades"] = load_model(
-        config_path=str(CPL_ROOT / "config/charades/main.json"),
-        vocab_path="data/charades/glove.pkl",
-        checkpoint_path="checkpoints/charades/model-best.pt",
-    )
-    print("  Charades model loaded.")
+    print("Models will be loaded on first request (lazy).")
     print("Server ready.")
 
 
 def identify_dataset(filename: str) -> str:
-    """Identify dataset from video filename."""
     name = Path(filename).stem
     if name.startswith("v_"):
         return "activitynet"
@@ -272,54 +300,56 @@ def identify_dataset(filename: str) -> str:
 def index():
     return HTML
 
+
 @app.post("/predict")
-async def predict(video: UploadFile = File(...), query: str = Form(...)):
-    # 1. Identify dataset
+async def predict(video: UploadFile = File(...), query: str = Form(...),
+                  model: str = Form("cpl")):
+    # Validate model
+    if model not in ("cpl", "cplmoe"):
+        raise HTTPException(400, f"Unknown model '{model}'. Use 'cpl', 'cplmoe', or 'pps'.")
+
     filename = video.filename or "unknown.mp4"
     dataset = identify_dataset(filename)
     video_id = Path(filename).stem
 
-    # 2. Hash video content + query to form cache key
-    video_bytes = await video.read()
-    cache_key = hashlib.md5(video_bytes + query.encode()).hexdigest()
+    # Lazy-load model
+    _load_if_needed(model, dataset)
 
-    # Check if result already cached
-    cached_json = CACHE_RESULTS / f"{cache_key}.json"
-    if cached_json.exists():
-        with open(cached_json) as f:
-            return json.load(f)
-
-    model_info = MODELS[dataset]
-    model = model_info["model"]
+    model_info = MODELS[_model_key(model, dataset)]
+    torch_model = model_info["model"]
     vocab = model_info["vocab"]
     keep_vocab = model_info["keep_vocab"]
     feature_path = model_info["feature_path"]
     feature_key = model_info["feature_key"]
 
-    # 3. Save video to cache (only if new combination)
+    # Cache key = hash(video + query + model)
+    video_bytes = await video.read()
+    cache_key = hashlib.md5(video_bytes + query.encode() + model.encode()).hexdigest()
+
+    cached_json = CACHE_RESULTS / f"{cache_key}.json"
+    if cached_json.exists():
+        with open(cached_json) as f:
+            return json.load(f)
+
     cached_video_path = CACHE_VIDEOS / f"{cache_key}_{filename}"
     with open(cached_video_path, "wb") as f:
         f.write(video_bytes)
 
-    # 4. Get duration via ffprobe
     try:
         duration = get_video_duration(str(cached_video_path))
     except RuntimeError:
         raise HTTPException(400, "Failed to read video duration from file")
 
-    # 5. Load features
     try:
         frames_feat = load_and_sample_features(feature_path, video_id, feature_key)
     except KeyError:
         raise HTTPException(400, f"Video '{video_id}' not found in feature file")
 
-    # 6. Process query
     try:
         words_id, words_feat, weights = process_query(query, vocab, keep_vocab)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # 7. Inference
     words_len_val = len(words_id)
     batch = {
         "frames_feat": torch.from_numpy(frames_feat).unsqueeze(0).to(DEVICE),
@@ -331,13 +361,11 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     }
 
     with torch.no_grad():
-        output = model(epoch=0, **batch)
+        output = torch_model(epoch=0, **batch)
 
-    # 8. Select best proposal
     use_vote = (dataset == "activitynet")
     start_norm, end_norm = select_best_proposal(output, use_vote=use_vote)
 
-    # 9. Convert to real timestamps
     start_time = start_norm * duration
     end_time = end_norm * duration
 
@@ -346,6 +374,7 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
         "video_name": filename,
         "video_id": video_id,
         "dataset": dataset,
+        "model": model,
         "query": query,
         "interval": [round(start_time, 2), round(end_time, 2)],
         "duration": round(duration, 2),
@@ -353,7 +382,6 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
         "cached_video": str(cached_video_path),
     }
 
-    # 10. Save result JSON
     with open(cached_json, "w") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
@@ -367,7 +395,7 @@ HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CPL Video Grounding</title>
+<title>Video Grounding</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -377,7 +405,6 @@ HTML = """<!DOCTYPE html>
   }
   .container { max-width: 680px; margin: 0 auto; }
 
-  /* Header */
   .header {
     background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
     border-radius: 12px; padding: 28px 32px; margin-bottom: 24px;
@@ -386,11 +413,24 @@ HTML = """<!DOCTYPE html>
   .header h1 { font-size: 1.4rem; color: #fff; font-weight: 700; letter-spacing: -.01em; }
   .header p { color: rgba(255,255,255,.75); font-size: .85rem; margin-top: 4px; }
 
-  /* Cards */
   .card {
     background: #fff; border-radius: 12px; padding: 28px;
     box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
     margin-bottom: 20px; border: 1px solid #e2e8f0;
+  }
+
+  /* Model selector */
+  .model-selector {
+    display: flex; gap: 10px; margin-bottom: 22px;
+  }
+  .model-btn {
+    flex: 1; padding: 10px 0; border: 2px solid #e2e8f0; border-radius: 24px;
+    background: #fff; color: #64748b; font-size: .85rem; font-weight: 600;
+    cursor: pointer; transition: all .2s; text-align: center;
+  }
+  .model-btn:hover { border-color: #93c5fd; color: #3b82f6; }
+  .model-btn.active {
+    background: #2563eb; border-color: #2563eb; color: #fff;
   }
 
   /* Upload zone */
@@ -407,7 +447,6 @@ HTML = """<!DOCTYPE html>
   .upload-zone .file-name { color: #1e40af; font-weight: 600; font-size: .85rem; margin-top: 6px; }
   .upload-zone input[type="file"] { display: none; }
 
-  /* Query input */
   label { display: block; font-weight: 600; margin-bottom: 6px; font-size: .8rem;
     color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
   .query-input {
@@ -417,35 +456,31 @@ HTML = """<!DOCTYPE html>
   }
   .query-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
 
-  /* Button */
-  button {
+  button.submit-btn {
     width: 100%; padding: 14px; border: none; border-radius: 10px;
     font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s;
     background: linear-gradient(135deg, #2563eb, #4f46e5);
     color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.3);
   }
-  button:hover { box-shadow: 0 4px 16px rgba(37,99,235,.4); transform: translateY(-1px); }
-  button:active { transform: translateY(0); }
-  button:disabled {
+  button.submit-btn:hover { box-shadow: 0 4px 16px rgba(37,99,235,.4); transform: translateY(-1px); }
+  button.submit-btn:active { transform: translateY(0); }
+  button.submit-btn:disabled {
     background: #cbd5e1; color: #94a3b8; box-shadow: none;
     cursor: not-allowed; animation: pulse 1.5s infinite;
   }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 
-  /* Result card */
   .result-card { background: #fff; border-radius: 12px; padding: 28px;
     box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
     border: 1px solid #e2e8f0; }
   .result-card h2 { font-size: .8rem; color: #64748b; margin-bottom: 18px;
     font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
-  /* States */
   .result-empty { color: #94a3b8; text-align: center; padding: 32px 0; font-size: .9rem; }
   .spinner-box { text-align: center; padding: 32px 0; color: #64748b; font-size: .9rem; }
   .result-error { color: #dc2626; text-align: center; padding: 24px 0; font-size: .9rem;
     background: #fef2f2; border-radius: 8px; }
 
-  /* Success */
   .result-success .timestamp-box {
     background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
     border: 2px solid #10b981; border-radius: 12px; padding: 24px;
@@ -457,7 +492,6 @@ HTML = """<!DOCTYPE html>
   }
   .result-success .timestamp .sep { color: #10b981; }
 
-  /* Timeline */
   .timeline { margin-bottom: 20px; }
   .timeline .track {
     position: relative; height: 32px; background: #f1f5f9;
@@ -485,7 +519,6 @@ HTML = """<!DOCTYPE html>
     transform: translateX(-50%); white-space: nowrap;
   }
 
-  /* Meta grid */
   .meta-grid {
     display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
     font-size: .82rem; line-height: 1.7;
@@ -501,14 +534,20 @@ HTML = """<!DOCTYPE html>
 <body>
 <div class="container">
 
-  <!-- Header -->
   <div class="header">
     <h1>Temporal Video Grounding</h1>
-    <p>CPL: Contrastive Proposal Learning &mdash; Single Video Inference</p>
+    <p>Weakly Supervised Single Video Inference</p>
   </div>
 
-  <!-- Input card -->
   <div class="card">
+    <!-- Model selector -->
+    <label>Model</label>
+    <div class="model-selector" id="model-selector">
+      <div class="model-btn active" data-model="cpl">CPL</div>
+      <div class="model-btn" data-model="cplmoe">CPL-MoE</div>
+      <div class="model-btn" data-model="pps">PPS</div>
+    </div>
+
     <form id="form">
       <label>Video file</label>
       <div class="upload-zone" id="upload-zone">
@@ -522,11 +561,10 @@ HTML = """<!DOCTYPE html>
       <input type="text" id="query" name="query" class="query-input"
              placeholder="Describe the moment you want to find, e.g. a person is running" required>
 
-      <button type="submit" id="submit-btn">Find Segment</button>
+      <button type="submit" id="submit-btn" class="submit-btn">Find Segment</button>
     </form>
   </div>
 
-  <!-- Result card -->
   <div class="result-card">
     <h2>Result</h2>
     <div id="result-area">
@@ -537,9 +575,19 @@ HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-var uploadedFileName = '';
+var selectedModel = 'cpl';
+var PPS_PORT = """ + str(PPS_PORT) + """;
 
-// Upload zone interactions
+// Model selector
+document.getElementById('model-selector').addEventListener('click', function(e) {
+  if (e.target.classList.contains('model-btn')) {
+    document.querySelectorAll('.model-btn').forEach(function(b) { b.classList.remove('active'); });
+    e.target.classList.add('active');
+    selectedModel = e.target.dataset.model;
+  }
+});
+
+// Upload zone
 var zone = document.getElementById('upload-zone');
 var fileInput = document.getElementById('video');
 var fileNameEl = document.getElementById('file-name');
@@ -556,8 +604,7 @@ zone.addEventListener('drop', function(e) {
 });
 fileInput.addEventListener('change', updateFileName);
 function updateFileName() {
-  uploadedFileName = fileInput.files[0] ? fileInput.files[0].name : '';
-  fileNameEl.textContent = uploadedFileName || '';
+  fileNameEl.textContent = fileInput.files[0] ? fileInput.files[0].name : '';
 }
 
 // Form submit
@@ -573,13 +620,23 @@ form.addEventListener('submit', function(e) {
 
   btn.disabled = true;
   btn.textContent = 'Running...';
-  resultArea.innerHTML = '<div class="spinner-box">Running inference &hellip;</div>';
+  resultArea.innerHTML = '<div class="spinner-box">Running inference with ' + selectedModel.toUpperCase() + ' &hellip;</div>';
 
   var data = new FormData();
   data.append('video', video);
   data.append('query', query);
 
-  fetch('/predict', { method: 'POST', body: data })
+  // PPS uses separate server on port 8200
+  var fetchUrl;
+  if (selectedModel === 'pps') {
+    fetchUrl = window.location.protocol + '//' + window.location.hostname + ':' + PPS_PORT + '/predict';
+    // PPS doesn't need model field (it's the only model there)
+  } else {
+    fetchUrl = '/predict';
+    data.append('model', selectedModel);
+  }
+
+  fetch(fetchUrl, { method: 'POST', body: data })
     .then(function(resp) { return resp.json().then(function(json) { return {ok: resp.ok, json: json}; }); })
     .then(function(r) {
       if (r.ok && r.json.success) { showResult(r.json); }
@@ -626,6 +683,7 @@ function showResult(json) {
         '<span class="key">Video</span><span class="val">' + json.video_name + '</span>' +
         '<span class="key">Duration</span><span class="val">' + dur.toFixed(2) + 's</span>' +
         '<span class="key">Dataset</span><span class="val"><span class="tag">' + json.dataset + '</span></span>' +
+        '<span class="key">Model</span><span class="val"><span class="tag">' + (json.model || selectedModel).toUpperCase() + '</span></span>' +
         '<span class="key">Query</span><span class="val">&ldquo;' + json.query + '&rdquo;</span>' +
         '<span class="key">Method</span><span class="val"><span class="tag">' + json.selection + '</span></span>' +
       '</div>' +
