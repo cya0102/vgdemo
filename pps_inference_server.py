@@ -211,14 +211,12 @@ def load_pps_model(config_path: str):
 
     keep_vocab = build_vocab_mapping(vocab, dataset_cfg["vocab_size"])
 
-    # Inject runtime config fields (PPS model needs frame_dim, word_dim, vocab_size, max_epoch)
-    model_cfg["config"]["frames_input_size"] = 500 if dataset_name == "ActivityNet" else 1024
-    model_cfg["config"]["words_input_size"] = 300
-    model_cfg["config"]["vocab_size"] = len(keep_vocab) + 1
-    model_cfg["config"]["max_epoch"] = train_cfg["num_epochs"]
+    # Inject runtime config fields
+    model_cfg["vocab_size"] = len(keep_vocab) + 1
+    model_cfg["max_epoch"] = train_cfg["num_epochs"]
 
-    # Build model
-    model = PPS(model_cfg["config"])
+    # Build model (PPS config is flat, no nested "config" key)
+    model = PPS(model_cfg)
     model = model.to(DEVICE)
     model.eval()
 
