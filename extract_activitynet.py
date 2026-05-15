@@ -1,12 +1,12 @@
 """
-Extract I3D features for ActivityNet Captions videos.
+Extract I3D features for a single ActivityNet video.
 Based on VSLNet-master/prepare/extract_activitynet.py.
 
 Usage:
     python extract_activitynet.py \
-        --load_model /path/to/rgb_imagenet.pt \
-        --video_dir /path/to/ActivityNet_videos \
-        --save_dir /path/to/features \
+        --load_model ./weights/rgb_imagenet.pt \
+        --video_path /path/to/video.mp4 \
+        --save_path /path/to/output.npy \
         --gpu_idx 0
 """
 import os
@@ -16,16 +16,13 @@ import cv2
 import torch
 import argparse
 import subprocess
+import tempfile
 import numpy as np
 from pathlib import Path
 
-# Add VSLNet feature extractor to path
-VSLNET_DIR = Path(__file__).resolve().parent / "VSLNet-master" / "prepare"
-sys.path.insert(0, str(VSLNET_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from feature_extractor import InceptionI3d
 
-
-# ── CenterCrop (inlined from VSLNet videotransforms.py) ────────────────────
 
 class CenterCrop:
     def __init__(self, size):
@@ -39,26 +36,40 @@ class CenterCrop:
         return imgs[:, i:i + th, j:j + tw, :]
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+def extract_frames(video_path: str, image_dir: str, video_id: str, fps):
+    """Extract frames from video using ffmpeg."""
+    os.makedirs(image_dir, exist_ok=True)
+    if fps and fps > 0:
+        cmd = (f"ffmpeg -hide_banner -loglevel panic -i {video_path} "
+               f"-filter:v fps=fps={fps} {image_dir}/{video_id}-%6d.jpg")
+    else:
+        cmd = (f"ffmpeg -hide_banner -loglevel panic -i {video_path} "
+               f"{image_dir}/{video_id}-%6d.jpg")
+    subprocess.call(cmd, shell=True)
 
-def load_frames(image_dir, video_id, start_frame, num_frames_to_load):
-    """Load and preprocess a range of frames."""
+
+def load_frames(image_dir: str, video_id: str, start_frame: int, num_to_load: int):
+    """Load and preprocess a range of frames (supports batching for long videos)."""
     frames = []
-    for x in range(start_frame, start_frame + num_frames_to_load):
+    for x in range(start_frame, start_frame + num_to_load):
         img_path = os.path.join(image_dir, f"{video_id}-{str(x).zfill(6)}.jpg")
-        img = cv2.imread(img_path)[:, :, [2, 1, 0]]  # BGR → RGB
+        img = cv2.imread(img_path)[:, :, [2, 1, 0]]  # BGR -> RGB
         h, w, _ = img.shape
-        # resize so min dimension >= 224
         scale = 1 + (224.0 - min(w, h)) / min(w, h)
         img = cv2.resize(img, dsize=(0, 0), fx=scale, fy=scale)
-        img = (img / 255.0) * 2 - 1  # normalize to [-1, 1]
+        img = (img / 255.0) * 2 - 1
         frames.append(img)
-    return frames
+    return np.asarray(frames, dtype=np.float32)
 
 
-def extract_window_features(img_tensor, model, strides):
-    """Sliding window I3D feature extraction."""
-    b, c, t, h, w = img_tensor.shape
+def extract_i3d_features(frames: np.ndarray, model, strides: int):
+    """Sliding-window I3D feature extraction."""
+    crop = CenterCrop(224)
+    imgs = crop(frames)
+    img_tensor = torch.from_numpy(np.expand_dims(imgs.transpose([3, 0, 1, 2]), axis=0))
+    print(f"  Frames: {frames.shape} -> {imgs.shape} -> {tuple(img_tensor.size())}")
+
+    _, _, t, _, _ = img_tensor.shape
     features = []
     for start in range(0, t, strides):
         end = min(t - 1, start + strides)
@@ -73,26 +84,25 @@ def extract_window_features(img_tensor, model, strides):
 
 # ── CLI ────────────────────────────────────────────────────────────────────
 
-parser = argparse.ArgumentParser(description="Extract I3D features for ActivityNet videos")
+parser = argparse.ArgumentParser(description="Extract I3D features for one ActivityNet video")
 parser.add_argument("--gpu_idx", type=str, default="0")
-parser.add_argument("--load_model", type=str, required=True, help="Pretrained I3D model (rgb_imagenet.pt)")
-parser.add_argument("--video_dir", type=str, required=True, help="Directory containing ActivityNet .mp4 videos")
-parser.add_argument("--save_dir", type=str, required=True, help="Output directory for .npy features")
-parser.add_argument("--images_dir", type=str, default=None, help="Temp directory for extracted frames (default: save_dir/images)")
-parser.add_argument("--fps", type=int, default=None, help="FPS for frame extraction (None = original FPS)")
-parser.add_argument("--strides", type=int, default=16, help="Sliding window stride")
-parser.add_argument("--remove_images", action="store_true", help="Delete frames after extraction")
+parser.add_argument("--load_model", type=str, required=True, help="Pretrained I3D (rgb_imagenet.pt)")
+parser.add_argument("--video_path", type=str, required=True, help="Path to input .mp4 video")
+parser.add_argument("--save_path", type=str, default=None, help="Output .npy path (default: same dir as video)")
+parser.add_argument("--fps", type=int, default=None, help="FPS for extraction (None = original)")
+parser.add_argument("--strides", type=int, default=16)
+parser.add_argument("--keep_frames", action="store_true", help="Keep extracted frames after extraction")
 args = parser.parse_args()
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_idx
 
-if not os.path.exists(args.video_dir):
-    raise ValueError(f"Video directory '{args.video_dir}' does not exist")
+video_path = args.video_path
+if not os.path.exists(video_path):
+    raise ValueError(f"Video not found: {video_path}")
 
-images_dir = args.images_dir or os.path.join(args.save_dir, "images_activitynet")
-os.makedirs(args.save_dir, exist_ok=True)
-os.makedirs(images_dir, exist_ok=True)
+video_id = Path(video_path).stem
+save_path = args.save_path or os.path.join(os.path.dirname(video_path), f"{video_id}.npy")
 
 # ── Build model ────────────────────────────────────────────────────────────
 
@@ -105,69 +115,26 @@ i3d_model.load_state_dict(state_dict)
 i3d_model.cuda()
 i3d_model.train(False)
 
-crop = CenterCrop(224)
-
-# ── Collect video IDs ──────────────────────────────────────────────────────
-
-repo_root = Path(__file__).resolve().parent
-activitynet_dir = repo_root / "cpl-main" / "data" / "activitynet"
-video_ids = set()
-for json_name in ["train_data.json", "test_data.json", "val_data.json"]:
-    json_path = activitynet_dir / json_name
-    if json_path.exists():
-        with open(json_path) as f:
-            data = json.load(f)
-            for item in data:
-                video_ids.add(item[0])
-video_ids = sorted(video_ids)
-print(f"Found {len(video_ids)} unique video IDs")
-
 # ── Extract ────────────────────────────────────────────────────────────────
 
-feature_shapes = {}
-for idx, video_id in enumerate(video_ids):
-    video_path = os.path.join(args.video_dir, f"{video_id}.mp4")
-    image_dir = os.path.join(images_dir, video_id)
-    save_path = os.path.join(args.save_dir, f"{video_id}.npy")
+print(f"Video: {video_path}")
+print(f"Video ID: {video_id}")
 
-    print(f"[{idx+1}/{len(video_ids)}] {video_id}", flush=True)
+MAX_BATCH_FRAMES = 10000
 
-    if os.path.exists(save_path):
-        feature = np.load(save_path)
-        feature_shapes[video_id] = feature.shape[0]
-        print(f"  Already exists, shape={feature.shape}, skipping.\n")
-        continue
-
-    # Check video exists
-    if not os.path.exists(video_path):
-        print(f"  WARNING: video not found at {video_path}, skipping.\n")
-        continue
-
-    # Extract frames with ffmpeg
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir)
-        if args.fps and args.fps > 0:
-            cmd = (f"ffmpeg -hide_banner -loglevel panic -i {video_path} "
-                   f"-filter:v fps=fps={args.fps} {image_dir}/{video_id}-%6d.jpg")
-        else:
-            cmd = (f"ffmpeg -hide_banner -loglevel panic -i {video_path} "
-                   f"{image_dir}/{video_id}-%6d.jpg")
-        subprocess.call(cmd, shell=True)
+with tempfile.TemporaryDirectory() as image_dir:
+    print(f"Extracting frames (fps={args.fps or 'original'})...")
+    extract_frames(video_path, image_dir, video_id, args.fps)
 
     num_frames = len(os.listdir(image_dir))
     if num_frames == 0:
-        print(f"  WARNING: no frames extracted, skipping.\n")
-        continue
+        raise RuntimeError("No frames extracted — check ffmpeg and video file")
 
-    # ActivityNet videos can be long; process in batches of 10000 frames
-    MAX_BATCH_FRAMES = 10000
+    print(f"Extracted {num_frames} frames, running I3D inference (stride={args.strides})...")
+
     if num_frames < MAX_BATCH_FRAMES:
         frames = load_frames(image_dir, video_id, 1, num_frames)
-        frames = np.asarray(frames, dtype=np.float32)
-        imgs = crop(frames)
-        img_tensor = torch.from_numpy(np.expand_dims(imgs.transpose([3, 0, 1, 2]), axis=0))
-        print(f"  Frames: {frames.shape} -> {imgs.shape} -> {tuple(img_tensor.size())}")
-        features = extract_window_features(img_tensor, i3d_model, args.strides)
+        features = extract_i3d_features(frames, i3d_model, args.strides)
     else:
         all_features = []
         for start_idx in range(1, num_frames, MAX_BATCH_FRAMES):
@@ -177,23 +144,17 @@ for idx, video_id in enumerate(video_ids):
                 cur_num = args.strides
                 start_idx = end_idx - cur_num
             frames = load_frames(image_dir, video_id, start_idx, cur_num)
-            frames = np.asarray(frames, dtype=np.float32)
-            imgs = crop(frames)
-            img_tensor = torch.from_numpy(np.expand_dims(imgs.transpose([3, 0, 1, 2]), axis=0))
-            print(f"  Batch [{start_idx}:{end_idx}]: {frames.shape} -> {imgs.shape}")
-            feats = extract_window_features(img_tensor, i3d_model, args.strides)
+            feats = extract_i3d_features(frames, i3d_model, args.strides)
             all_features.append(feats)
         features = np.concatenate(all_features, axis=0)
 
-    np.save(save_path, features)
-    feature_shapes[video_id] = features.shape[0]
-    print(f"  Saved: {save_path} shape={features.shape}\n")
+    if args.keep_frames:
+        keep_dir = os.path.join(os.path.dirname(save_path), f"{video_id}_frames")
+        os.makedirs(keep_dir, exist_ok=True)
+        for f in os.listdir(image_dir):
+            os.rename(os.path.join(image_dir, f), os.path.join(keep_dir, f))
+        print(f"Frames kept at: {keep_dir}")
 
-    if args.remove_images:
-        subprocess.call(f"rm -rf {image_dir}", shell=True)
-
-# Save shape index
-shapes_path = os.path.join(args.save_dir, "feature_shapes.json")
-with open(shapes_path, "w") as f:
-    json.dump(feature_shapes, f)
-print(f"Done. {len(feature_shapes)} videos. Shapes saved to {shapes_path}")
+os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+np.save(save_path, features)
+print(f"Saved: {save_path}  shape={features.shape}")
