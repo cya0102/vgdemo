@@ -232,6 +232,7 @@ CACHE_RESULTS = REPO_ROOT / "cache" / "results"
 app = FastAPI(title="Video Grounding Inference", version="2.0.0")
 
 MODELS = {}  # key: "cpl_activitynet", "cplmoe_charades", etc.
+GT_TABLE = {}  # key: video_id -> {query: [start_sec, end_sec]} (all sentences for that video)
 
 
 def _model_key(model_type: str, dataset: str) -> str:
@@ -280,11 +281,54 @@ def _load_if_needed(model_type: str, dataset: str):
     print(f"  {model_type.upper()} {dc} loaded.")
 
 
+def _build_gt_table():
+    """Build {video_id: [(sentence, start, end), ...]} from data JSONs."""
+    import json as _json
+    gt = {}
+    for dataset_key, json_names in [
+        ("activitynet", ["train_data.json", "test_data.json", "val_data.json"]),
+        ("charades", ["train.json", "test.json"]),
+    ]:
+        data_dir = CPL_ROOT / "data" / dataset_key
+        for jn in json_names:
+            jp = data_dir / jn
+            if not jp.exists():
+                continue
+            with open(jp) as f:
+                for item in _json.load(f):
+                    vid, duration, timestamps, sentence = item
+                    entry = (sentence.strip().lower(), float(timestamps[0]), float(timestamps[1]))
+                    if vid not in gt:
+                        gt[vid] = []
+                    # Deduplicate
+                    if entry not in gt[vid]:
+                        gt[vid].append(entry)
+    print(f"GT table: {len(gt)} videos indexed")
+    return gt
+
+
+def _find_best_gt(video_id: str, query: str):
+    """Find the most relevant GT segment by word overlap with the query."""
+    entries = GT_TABLE.get(video_id, [])
+    if not entries:
+        return None
+    query_words = set(query.lower().split())
+    best, best_overlap = None, 0
+    for sentence, start, end in entries:
+        overlap = len(query_words & set(sentence.split()))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = (sentence, start, end)
+    return best
+
+
 @app.on_event("startup")
 def startup():
+    global GT_TABLE
     print(f"Using device: {DEVICE} | CPL+CPL-MoE on port 8100 | PPS on port {PPS_PORT}")
     CACHE_VIDEOS.mkdir(parents=True, exist_ok=True)
     CACHE_RESULTS.mkdir(parents=True, exist_ok=True)
+    GT_TABLE = _build_gt_table()
     print("Models will be loaded on first request (lazy).")
     print("Server ready.")
 
@@ -369,6 +413,10 @@ async def predict(video: UploadFile = File(...), query: str = Form(...),
     start_time = start_norm * duration
     end_time = end_norm * duration
 
+    # GT lookup
+    gt_entry = _find_best_gt(video_id, query)
+    gt_interval = [round(gt_entry[1], 2), round(gt_entry[2], 2)] if gt_entry else None
+
     result = {
         "success": True,
         "video_name": filename,
@@ -379,6 +427,8 @@ async def predict(video: UploadFile = File(...), query: str = Form(...),
         "interval": [round(start_time, 2), round(end_time, 2)],
         "duration": round(duration, 2),
         "selection": "vote" if use_vote else "loss",
+        "gt": gt_interval,
+        "gt_sentence": gt_entry[0] if gt_entry else None,
         "cached_video": str(cached_video_path),
     }
 
@@ -391,11 +441,11 @@ async def predict(video: UploadFile = File(...), query: str = Form(...),
 # ── HTML Page ──────────────────────────────────────────────────────────────
 
 HTML = """<!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Video Grounding</title>
+<title>视频时序定位</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -481,43 +531,38 @@ HTML = """<!DOCTYPE html>
   .result-error { color: #dc2626; text-align: center; padding: 24px 0; font-size: .9rem;
     background: #fef2f2; border-radius: 8px; }
 
-  .result-success .timestamp-box {
-    background: linear-gradient(135deg, #ecfdf5, #f0fdf4);
-    border: 2px solid #10b981; border-radius: 12px; padding: 24px;
-    text-align: center; margin-bottom: 20px;
-  }
-  .result-success .timestamp {
-    font-size: 1.75rem; font-weight: 700; color: #065f46;
-    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-  }
-  .result-success .timestamp .sep { color: #10b981; }
+  /* Compare: GT vs Prediction */
+  .compare-row { display: flex; gap: 14px; margin-bottom: 20px; }
+  .gt-box, .pred-box { flex: 1; border-radius: 10px; padding: 18px; text-align: center; }
+  .gt-box { background: #f8fafc; border: 2px solid #cbd5e1; }
+  .gt-label { font-size: .7rem; color: #64748b; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .gt-timestamp { font-size: 1.15rem; font-weight: 700; color: #475569; font-family: 'SF Mono', 'Menlo', monospace; }
+  .gt-sentence { font-size: .75rem; color: #94a3b8; font-style: italic; margin-top: 6px; line-height: 1.4; }
+  .pred-box { background: linear-gradient(135deg, #ecfdf5, #f0fdf4); border: 2px solid #10b981; }
+  .pred-label { font-size: .7rem; color: #065f46; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .pred-timestamp { font-size: 1.15rem; font-weight: 700; color: #065f46; font-family: 'SF Mono', 'Menlo', monospace; }
+  .pred-method { font-size: .7rem; color: #10b981; margin-top: 6px; }
 
   .timeline { margin-bottom: 20px; }
+  .timeline-label { font-size: .72rem; color: #64748b; font-weight: 600; margin-bottom: 8px; }
   .timeline .track {
     position: relative; height: 32px; background: #f1f5f9;
     border-radius: 16px; overflow: hidden;
   }
   .timeline .track .fill {
-    position: absolute; top: 0; height: 100%;
-    background: linear-gradient(90deg, #3b82f6, #6366f1);
-    border-radius: 16px; transition: all .3s;
+    position: absolute; top: 0; height: 100%; border-radius: 16px; transition: all .3s;
   }
-  .timeline .track .handle {
-    position: absolute; top: -3px; width: 10px; height: 38px;
-    background: #fff; border: 2.5px solid #3b82f6; border-radius: 5px;
-    z-index: 2;
-  }
+  .timeline .track .gt-fill { background: #cbd5e1; z-index: 1; }
+  .timeline .track .pred-fill { background: linear-gradient(90deg, #3b82f6, #6366f1); z-index: 2; opacity: .85; }
   .timeline .labels {
     display: flex; justify-content: space-between; font-size: .75rem;
     color: #94a3b8; margin-top: 6px; padding: 0 4px;
   }
-  .timeline .markers {
-    position: relative; height: 18px; margin-top: 2px;
-  }
-  .timeline .markers .marker {
-    position: absolute; font-size: .7rem; color: #3b82f6; font-weight: 600;
-    transform: translateX(-50%); white-space: nowrap;
-  }
+  .legend { display: flex; gap: 16px; justify-content: center; margin-top: 8px; font-size: .72rem; color: #64748b; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+  .gt-dot { background: #cbd5e1; }
+  .pred-dot { background: #3b82f6; }
 
   .meta-grid {
     display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
@@ -535,40 +580,40 @@ HTML = """<!DOCTYPE html>
 <div class="container">
 
   <div class="header">
-    <h1>Temporal Video Grounding</h1>
-    <p>Weakly Supervised Single Video Inference</p>
+    <h1>视频时序定位</h1>
+    <p>弱监督单视频推理 &mdash; CPL / PPS / CPL-MoE</p>
   </div>
 
   <div class="card">
     <!-- Model selector -->
-    <label>Model</label>
+    <label>选择模型</label>
     <div class="model-selector" id="model-selector">
       <div class="model-btn active" data-model="cpl">CPL</div>
-      <div class="model-btn" data-model="cplmoe">CPL-MoE</div>
       <div class="model-btn" data-model="pps">PPS</div>
+      <div class="model-btn" data-model="cplmoe">CPL-MoE</div>
     </div>
 
     <form id="form">
-      <label>Video file</label>
+      <label>上传视频</label>
       <div class="upload-zone" id="upload-zone">
         <div class="icon">&#x1F3AC;</div>
-        <div class="text">Click or drag video file here</div>
+        <div class="text">点击或拖拽视频文件到此处</div>
         <div class="file-name" id="file-name"></div>
         <input type="file" id="video" name="video" accept="video/*" required>
       </div>
 
-      <label for="query">Text query</label>
+      <label for="query">查询文本</label>
       <input type="text" id="query" name="query" class="query-input"
-             placeholder="Describe the moment you want to find, e.g. a person is running" required>
+             placeholder="描述你想定位的画面，例如：一个人正在跑步" required>
 
-      <button type="submit" id="submit-btn" class="submit-btn">Find Segment</button>
+      <button type="submit" id="submit-btn" class="submit-btn">查找片段</button>
     </form>
   </div>
 
   <div class="result-card">
-    <h2>Result</h2>
+    <h2>定位结果</h2>
     <div id="result-area">
-      <div class="result-empty">Upload a video and enter a text query, then click Find Segment.</div>
+      <div class="result-empty">上传视频并输入查询文本，然后点击"查找片段"。</div>
     </div>
   </div>
 
@@ -619,8 +664,8 @@ form.addEventListener('submit', function(e) {
   if (!video || !query) return;
 
   btn.disabled = true;
-  btn.textContent = 'Running...';
-  resultArea.innerHTML = '<div class="spinner-box">Running inference with ' + selectedModel.toUpperCase() + ' &hellip;</div>';
+  btn.textContent = '推理中...';
+  resultArea.innerHTML = '<div class="spinner-box">正在使用 ' + selectedModel.toUpperCase() + ' 推理&hellip;</div>';
 
   var data = new FormData();
   data.append('video', video);
@@ -640,14 +685,14 @@ form.addEventListener('submit', function(e) {
     .then(function(resp) { return resp.json().then(function(json) { return {ok: resp.ok, json: json}; }); })
     .then(function(r) {
       if (r.ok && r.json.success) { showResult(r.json); }
-      else { resultArea.innerHTML = '<div class="result-error">' + (r.json.detail || 'Unknown error') + '</div>'; }
+      else { resultArea.innerHTML = '<div class="result-error">' + (r.json.detail || '未知错误') + '</div>'; }
     })
     .catch(function(err) {
-      resultArea.innerHTML = '<div class="result-error">Request failed: ' + err.message + '</div>';
+      resultArea.innerHTML = '<div class="result-error">请求失败：' + err.message + '</div>';
     })
     .finally(function() {
       btn.disabled = false;
-      btn.textContent = 'Find Segment';
+      btn.textContent = '查找片段';
     });
 });
 
@@ -658,34 +703,49 @@ function showResult(json) {
   var leftPct = (start / dur * 100).toFixed(1);
   var widthPct = ((end - start) / dur * 100).toFixed(1);
 
+  var gtHtml = '', gtTrackHtml = '';
+  if (json.gt) {
+    var gs = json.gt[0], ge = json.gt[1];
+    var gl = (gs / dur * 100).toFixed(1), gw = ((ge - gs) / dur * 100).toFixed(1);
+    gtHtml =
+      '<div class="gt-box">' +
+        '<div class="gt-label">真实标注 (Ground Truth)</div>' +
+        '<div class="gt-timestamp">[' + gs.toFixed(2) + 's &mdash; ' + ge.toFixed(2) + 's]</div>' +
+        (json.gt_sentence ? '<div class="gt-sentence">&ldquo;' + json.gt_sentence + '&rdquo;</div>' : '') +
+      '</div>';
+    gtTrackHtml = '<div class="fill gt-fill" style="left:' + gl + '%;width:' + gw + '%;"></div>';
+  }
+
   resultArea.innerHTML =
     '<div class="result-success">' +
-      '<div class="timestamp-box">' +
-        '<div class="timestamp">' +
-          start.toFixed(2) + 's  <span class="sep">&mdash;</span>  ' + end.toFixed(2) + 's' +
+      '<div class="compare-row">' +
+        gtHtml +
+        '<div class="pred-box">' +
+          '<div class="pred-label">模型预测 (' + (json.model || selectedModel).toUpperCase() + ')</div>' +
+          '<div class="pred-timestamp">[' + start.toFixed(2) + 's &mdash; ' + end.toFixed(2) + 's]</div>' +
+          '<div class="pred-method">策略：' + (json.selection === 'vote' ? '投票机制' : '损失最小') + '</div>' +
         '</div>' +
       '</div>' +
 
       '<div class="timeline">' +
+        '<div class="timeline-label">时间轴</div>' +
         '<div class="track">' +
-          '<div class="fill" style="left:' + leftPct + '%;width:' + widthPct + '%;"></div>' +
-          '<div class="handle" style="left:' + leftPct + '%;"></div>' +
-          '<div class="handle" style="left:' + (parseFloat(leftPct) + parseFloat(widthPct)) + '%;"></div>' +
+          gtTrackHtml +
+          '<div class="fill pred-fill" style="left:' + leftPct + '%;width:' + widthPct + '%;"></div>' +
         '</div>' +
         '<div class="labels"><span>0s</span><span>' + dur.toFixed(0) + 's</span></div>' +
-        '<div class="markers">' +
-          '<div class="marker" style="left:' + leftPct + '%;">' + start.toFixed(1) + 's</div>' +
-          '<div class="marker" style="left:' + (parseFloat(leftPct) + parseFloat(widthPct)) + '%;">' + end.toFixed(1) + 's</div>' +
+        '<div class="legend">' +
+          (json.gt ? '<span class="legend-item"><span class="legend-dot gt-dot"></span>真实标注</span>' : '') +
+          '<span class="legend-item"><span class="legend-dot pred-dot"></span>模型预测</span>' +
         '</div>' +
       '</div>' +
 
       '<div class="meta-grid">' +
-        '<span class="key">Video</span><span class="val">' + json.video_name + '</span>' +
-        '<span class="key">Duration</span><span class="val">' + dur.toFixed(2) + 's</span>' +
-        '<span class="key">Dataset</span><span class="val"><span class="tag">' + json.dataset + '</span></span>' +
-        '<span class="key">Model</span><span class="val"><span class="tag">' + (json.model || selectedModel).toUpperCase() + '</span></span>' +
-        '<span class="key">Query</span><span class="val">&ldquo;' + json.query + '&rdquo;</span>' +
-        '<span class="key">Method</span><span class="val"><span class="tag">' + json.selection + '</span></span>' +
+        '<span class="key">视频</span><span class="val">' + json.video_name + '</span>' +
+        '<span class="key">时长</span><span class="val">' + dur.toFixed(2) + 's</span>' +
+        '<span class="key">数据集</span><span class="val"><span class="tag">' + json.dataset + '</span></span>' +
+        '<span class="key">模型</span><span class="val"><span class="tag">' + (json.model || selectedModel).toUpperCase() + '</span></span>' +
+        '<span class="key">查询</span><span class="val">&ldquo;' + json.query + '&rdquo;</span>' +
       '</div>' +
     '</div>';
 }

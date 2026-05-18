@@ -256,13 +256,55 @@ app.add_middleware(
 )
 
 MODELS = {}
+GT_TABLE = {}
+
+
+def _build_gt_table():
+    """Build {video_id: [(sentence, start, end), ...]} from data JSONs."""
+    gt = {}
+    data_root = PPS_ROOT / "data"
+    for dataset_key, json_names in [
+        ("activitynet", ["train_data.json", "test_data.json"]),
+        ("charades", ["train.json", "test.json"]),
+    ]:
+        data_dir = data_root / dataset_key
+        for jn in json_names:
+            jp = data_dir / jn
+            if not jp.exists():
+                continue
+            with open(jp) as f:
+                for item in json.load(f):
+                    vid, duration, timestamps, sentence = item
+                    entry = (sentence.strip().lower(), float(timestamps[0]), float(timestamps[1]))
+                    if vid not in gt:
+                        gt[vid] = []
+                    if entry not in gt[vid]:
+                        gt[vid].append(entry)
+    print(f"GT table: {len(gt)} videos indexed")
+    return gt
+
+
+def _find_best_gt(video_id: str, query: str):
+    entries = GT_TABLE.get(video_id, [])
+    if not entries:
+        return None
+    query_words = set(query.lower().split())
+    best, best_overlap = None, 0
+    for sentence, start, end in entries:
+        overlap = len(query_words & set(sentence.split()))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = (sentence, start, end)
+    return best
 
 
 @app.on_event("startup")
 def startup():
+    global GT_TABLE
     print(f"Using device: {DEVICE} | PPS server on port 8200")
     CACHE_VIDEOS.mkdir(parents=True, exist_ok=True)
     CACHE_RESULTS.mkdir(parents=True, exist_ok=True)
+    GT_TABLE = _build_gt_table()
 
     # ActivityNet
     print("Loading PPS ActivityNet model...")
@@ -344,6 +386,9 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
     start_time = start_norm * duration
     end_time = end_norm * duration
 
+    gt_entry = _find_best_gt(video_id, query)
+    gt_interval = [round(gt_entry[1], 2), round(gt_entry[2], 2)] if gt_entry else None
+
     result = {
         "success": True,
         "video_name": filename,
@@ -354,6 +399,8 @@ async def predict(video: UploadFile = File(...), query: str = Form(...)):
         "interval": [round(start_time, 2), round(end_time, 2)],
         "duration": round(duration, 2),
         "selection": "vote",
+        "gt": gt_interval,
+        "gt_sentence": gt_entry[0] if gt_entry else None,
         "cached_video": str(cached_video_path),
     }
 
