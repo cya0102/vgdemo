@@ -623,6 +623,13 @@ HTML = """<!DOCTYPE html>
 var selectedModel = 'cpl';
 var PPS_PORT = """ + str(PPS_PORT) + """;
 
+// Ground truth for demo video v_DRWMUsADKFM
+var DEMO_GT = [
+  {query: "A camera pans around a room and leads into a room rubbing paper down and putting a box in the middle.", start: 0.92, end: 56.74},
+  {query: "The woman wraps the box up in paper and pushing in the sides.", start: 54.91, end: 128.11},
+  {query: "She tapes up the sides and uses a ribbon to tie the box up and ends by unwrapping it and showing what's inside.", start: 127.2, end: 181.19}
+];
+
 // Model selector
 document.getElementById('model-selector').addEventListener('click', function(e) {
   if (e.target.classList.contains('model-btn')) {
@@ -703,15 +710,45 @@ function showResult(json) {
   var leftPct = (start / dur * 100).toFixed(1);
   var widthPct = ((end - start) / dur * 100).toFixed(1);
 
+  // Match GT: demo video or server-provided
+  var gtMatch = null;
+  if (json.video_id === 'v_DRWMUsADKFM') {
+    // Find exact match by query text
+    var q = json.query.trim().toLowerCase();
+    for (var i = 0; i < DEMO_GT.length; i++) {
+      if (DEMO_GT[i].query.trim().toLowerCase() === q) {
+        gtMatch = DEMO_GT[i];
+        break;
+      }
+    }
+    // Fallback: word overlap
+    if (!gtMatch) {
+      var qWords = q.split(' ');
+      var bestOverlap = 0;
+      for (var i = 0; i < DEMO_GT.length; i++) {
+        var gWords = DEMO_GT[i].query.split(' ');
+        var overlap = 0;
+        for (var j = 0; j < qWords.length; j++) {
+          for (var k = 0; k < gWords.length; k++) {
+            if (qWords[j] === gWords[k]) overlap++;
+          }
+        }
+        if (overlap > bestOverlap) { bestOverlap = overlap; gtMatch = DEMO_GT[i]; }
+      }
+    }
+  } else if (json.gt) {
+    gtMatch = {query: json.gt_sentence, start: json.gt[0], end: json.gt[1]};
+  }
+
   var gtHtml = '', gtTrackHtml = '';
-  if (json.gt) {
-    var gs = json.gt[0], ge = json.gt[1];
+  if (gtMatch) {
+    var gs = gtMatch.start, ge = gtMatch.end;
     var gl = (gs / dur * 100).toFixed(1), gw = ((ge - gs) / dur * 100).toFixed(1);
     gtHtml =
       '<div class="gt-box">' +
         '<div class="gt-label">真实标注 (Ground Truth)</div>' +
         '<div class="gt-timestamp">[' + gs.toFixed(2) + 's &mdash; ' + ge.toFixed(2) + 's]</div>' +
-        (json.gt_sentence ? '<div class="gt-sentence">&ldquo;' + json.gt_sentence + '&rdquo;</div>' : '') +
+        (gtMatch.query ? '<div class="gt-sentence">&ldquo;' + gtMatch.query.substring(0, 80) + '&hellip;&rdquo;</div>' : '') +
       '</div>';
     gtTrackHtml = '<div class="fill gt-fill" style="left:' + gl + '%;width:' + gw + '%;"></div>';
   }
@@ -735,7 +772,7 @@ function showResult(json) {
         '</div>' +
         '<div class="labels"><span>0s</span><span>' + dur.toFixed(0) + 's</span></div>' +
         '<div class="legend">' +
-          (json.gt ? '<span class="legend-item"><span class="legend-dot gt-dot"></span>真实标注</span>' : '') +
+          (gtMatch ? '<span class="legend-item"><span class="legend-dot gt-dot"></span>真实标注</span>' : '') +
           '<span class="legend-item"><span class="legend-dot pred-dot"></span>模型预测</span>' +
         '</div>' +
       '</div>' +
@@ -745,7 +782,7 @@ function showResult(json) {
         '<span class="key">时长</span><span class="val">' + dur.toFixed(2) + 's</span>' +
         '<span class="key">数据集</span><span class="val"><span class="tag">' + json.dataset + '</span></span>' +
         '<span class="key">模型</span><span class="val"><span class="tag">' + (json.model || selectedModel).toUpperCase() + '</span></span>' +
-        '<span class="key">查询</span><span class="val">&ldquo;' + json.query + '&rdquo;</span>' +
+        '<span class="key">查询</span><span class="val">&ldquo;' + json.query.substring(0, 60) + '&hellip;&rdquo;</span>' +
       '</div>' +
     '</div>';
 }
