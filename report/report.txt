@@ -1,0 +1,183 @@
+专业实践报告总结
+姓名：陈宇安  学号：（请填写）  专业：计算机技术
+
+一、立项依据
+
+1.1 立项意义
+
+随着自媒体行业的快速崛起，视频已成为信息传播的主流媒介。海量的视频数据在丰富人们生活的同时，也为信息检索带来了巨大挑战。以监控视频为例，现代安防摄像头虽然具备移动检测功能，能够自动记录存在运动目标的视频片段，但当用户需要从长达数小时的录像中查找特定事件时，仍只能依靠人工逐帧回放，效率极低。若能通过自然语言描述直接定位到视频中的相关片段，将极大提升视频检索效率，拓展监控安防、内容审核、智能剪辑等应用场景。
+
+视频时序定位（Temporal Video Grounding）正是针对上述需求而提出的研究方向。该任务以一段未剪辑的视频和一句自然语言查询文本为输入，输出视频中与查询语义匹配的时间片段（以起止时间戳表示）。相较于传统的视觉定位任务仅需完成图像与文本的静态空间对齐，视频时序定位需要同时建模视频的时序动态性和跨模态时空对齐关系，技术难度显著提升。
+
+在实际应用中，精确的时间边界标注成本极高，限制了全监督方法的规模化部署。因此，弱监督视频时序定位（Weakly Supervised Temporal Video Grounding, WSTVG）成为近年来的研究热点。该方法仅需视频级别的文本标注即可完成训练，极大降低了数据标注成本。然而，弱监督范式下缺乏精确的时间边界监督信号，如何生成高质量的时间提议并建立稳定的跨模态对应关系，是该领域的核心挑战。
+
+基于上述背景，本实践项目选择弱监督视频时序定位作为研究方向，旨在复现并对比三种代表性方法——CPL、CPL-MoE和PPS，构建一个交互式单视频推理演示系统，为模型性能评估和算法对比提供可视化平台。
+
+1.2 国内外研究现状
+
+视频时序定位任务可根据监督信号强弱分为全监督和弱监督两大范式。全监督方法依赖精确的起止时间标注，代表工作包括基于滑动窗口的CTRL模型、基于提议生成的SAP模型以及端到端的GDP模型等。然而，时间边界标注成本高昂，限制了这些方法在实际场景中的推广应用。
+
+在弱监督范式下，研究者围绕如何在不使用时间标注的条件下建立视频-文本对应关系开展了大量探索。Zheng等人提出了CPL（Contrastive Proposal Learning）模型，通过多个可学习的高斯函数生成正负提议，并设计了由易到难的负样本挖掘策略，在仅使用视频级标签的条件下取得了与部分全监督方法相当的性能。该方法的后续扩展CPL-MoE引入了查询引导的混合专家（Mixture of Experts）机制，将原CPL中单一的提议生成网络替换为根据查询语义动态路由的专家网络，进一步提升了提议质量。
+
+在提议建模方面，Kim等人提出了PPS（Gaussian Mixture Proposals with Pull-Push Learning）模型，采用高斯混合分布替代单高斯分布来建模复杂事件。该模型通过拉-推学习机制实现提议多样性与语义相关性之间的平衡：拉拢损失促使各高斯成分聚焦于与查询相关的区域，而推离损失则约束高斯成分间的重叠度，避免提议冗余。该方法在ActivityNet Captions和Charades-STA两个公开基准数据集上取得了最先进的性能。
+
+与此同时，学术界在弱监督范式下的跨模态建模方面也取得了显著进展。Bao等人提出了局部-全局多模态蒸馏框架，通过跨模态互学习生成鲁棒的伪边界标记。Huang等人提出基于不确定性引导的自训练框架，通过贝叶斯教师网络生成置信度估计以抑制伪标记噪声。Cao等人提出的IRON模型通过语义-概念双重知识蒸馏实现弱监督信号的自适应扩展。Wang等人提出的WSTAN模型将弱监督时序定位建模为多示例学习问题，通过自判别损失强化时序区分性。
+
+尽管上述方法在标准基准上取得了显著进展，但在实际部署和模型对比方面仍存在以下不足：（1）各方法的代码框架和环境配置各异，难以在同一平台上进行公平对比；（2）缺少面向单视频推理的交互式演示工具，用户无法直观感受不同模型的定位效果；（3）现有评测脚本仅输出批量指标，无法针对单个样本进行深入的错误分析。本实践项目正是针对这些工程化不足的问题，构建统一的单视频推理演示平台。
+
+二、项目创新内容
+
+2.1 项目总体思路
+
+本项目以弱监督视频时序定位为研究背景，以构建统一的模型对比演示系统为核心目标。项目选取三种代表性方法——CPL（CVPR 2022/TPAMI 2025）、CPL-MoE和PPS（AAAI 2024），在ActivityNet Captions和Charades-STA两个基准数据集上搭建完整的单视频推理流水线。项目整体分为四个阶段：（1）模型复现与代码整合，将三个模型统一到同一代码仓库中，解决环境依赖和接口差异问题；（2）前后端系统搭建，基于FastAPI框架构建Web服务，实现视频上传、文本查询、模型选择和推理结果展示的完整交互流程；（3）特征工程与缓存优化，集成视频特征提取模块，设计基于内容哈希的缓存机制避免重复计算；（4）可视化与GT对比，构建直观的时间轴展示和Ground Truth对比功能，辅助模型性能分析。
+
+系统支持三个模型的自由切换，自动识别ActivityNet和Charades数据集，并针对不同数据集的特性采用不同的推理策略（ActivityNet使用投票机制，Charades使用损失最小化选择）。此外，系统还集成了视频时长自动读取（通过ffprobe）、特征缓存去重和GT标注对比等实用功能。
+
+2.2 可行性分析
+
+理论层面：项目涉及的三篇论文均发表于CCF-A类会议或IEEE Trans期刊，方法经过严格的同行评审和实验验证。CPL模型在Charades-STA上达到R@1,IoU@0.5=49.24%，在ActivityNet Captions上达到R@1,IoU@0.5=31.24%；PPS模型在两个数据集上分别达到51.49%和31.25%。预训练模型权重已在GitHub公开发布，可直接加载进行推理。
+
+技术层面：项目选用的FastAPI框架具有性能优异、自动生成API文档和支持异步处理等特性，适合构建高性能推理服务。深度学习框架PyTorch提供完善的模型加载和推理接口。前端采用纯HTML/CSS/JavaScript实现，无需额外安装Node.js等工具链，降低了部署复杂度。两个数据集的特征文件（HDF5格式）已预先提取并存储于服务器，无需实时进行视频编解码。
+
+硬件层面：模型推理仅需单张GPU（11GB以上显存），支持CUDA加速，也可在CPU上运行。两个服务的显存占用可通过懒加载策略控制在约4GB以内。
+
+2.3 项目特色与创新之处
+
+（1）统一的多模型对比平台：项目首次将CPL、CPL-MoE和PPS三个弱监督视频定位模型整合到同一Web界面中，支持用户上传视频后一键切换模型，实时对比不同方法的定位效果。这种统一的对比范式在现有开源代码中尚未出现。
+
+（2）双服务架构解决环境冲突：针对PPS与CPL/CPL-MoE的Conda环境不兼容问题，设计了双服务架构（端口8100和8200），前端通过JavaScript自动路由到对应的推理服务，用户对底层切换完全无感知。
+
+（3）基于内容哈希的智能缓存：推理结果和视频文件均采用MD5（视频内容+查询文本+模型名称）作为缓存键，相同输入自动命中缓存，避免重复推理。同一视频不同文件名也因内容哈希一致而正确识别。
+
+（4）Ground Truth可视化对比：系统内置数据集标注的GT信息，在推理结果展示时将模型预测区间与GT区间并排呈现于时间轴上，直观反映模型的定位准确性。
+
+三、实施方案
+
+3.1 关键技术介绍
+
+3.1.1 CPL：基于高斯对比提议学习的弱监督时序定位
+
+CPL（Contrastive Proposal Learning）是弱监督视频时序定位的代表性方法。其核心思想是使用多个可学习的高斯函数在时间轴上生成候选提议，并通过对比学习框架筛选出与查询文本最匹配的提议。模型架构包含以下关键组件：
+
+（1）DualTransformer：采用两个Transformer解码器堆叠（不含编码器），第一个解码器通过视频-文本交叉注意力生成高斯提议参数（中心位置和宽度），第二个解码器在提议高斯权重的引导下执行语义补全任务。
+
+（2）高斯提议生成：模型输出N个（默认8个）可学习的高斯分布，每个由其归一化的中心点（center∈[0,1]）和宽度（width∈[0,1]）参数化。这些高斯函数在时间轴上产生软注意力掩码，替代了传统的硬边界候选片段。
+
+（3）由易到难的负样本挖掘：随着训练推进，负提议逐渐从正提议区域向外扩散，由超参数gamma控制扩散速度。这使模型在训练初期学习粗粒度的正负区分，后期精确定位边界。
+
+（4）语义补全与对比学习：通过随机掩码部分词元并要求模型从提议区域重建被掩码词，实现跨模态细粒度对齐。同时，对比损失强制正提议的重建误差低于负提议。
+
+在推理阶段，模型对每个提议计算重建损失的负对数似然（NLL），按NLL排序后通过投票机制选择最优提议：ActivityNet采用均匀权重投票，Charades使用NLL加权投票。
+
+3.1.2 CPL-MoE：查询引导混合专家扩展
+
+CPL-MoE在CPL框架基础上，将提议生成部分的单一全连接网络替换为查询引导的混合专家（Query-Guided Mixture of Experts）模块。该模块包含8个专家网络（5个常规ProposalExpert、ConstantExpert、CopyExpert和ZeroExpert各1个）和2个共享专家。路由器接收多模态特征和查询语义特征作为输入，通过双层门控网络为每个查询选择Top-2专家。共享专家始终激活，提供基础提议生成能力；路由专家则根据查询语义进行专业化选择。
+
+训练时引入辅助负载均衡损失，鼓励所有专家被均匀使用，避免少数专家主导梯度更新。推理阶段的前向传播流程与CPL完全一致，MoE模块仅影响高斯提议参数的生成方式。
+
+3.1.3 PPS：高斯混合提议与拉-推学习
+
+PPS（Gaussian Mixture Proposals with Pull-Push Learning）提出使用高斯混合分布替代单高斯分布来建模复杂事件。对于具有num_props=5的ActivityNet配置，模型输出5个尺度层级，分别产生1、2、3、4、5个高斯成分，共计15个候选提议。每个高斯成分由其重要性权重、中心位置和分布范围参数化，形成对任意形状事件分布的灵活建模能力。
+
+PPS的核心创新在于拉-推学习机制：
+- 拉拢损失：最小化同一尺度内各高斯成分中心点之间的距离，促使提议聚焦于语义相关的时序区域；
+- 推离损失：最大化不同高斯成分之间的正交性（通过Frobenius范数约束权重矩阵趋近单位矩阵），保证各提议覆盖不同的时间片段，避免冗余；
+- 对比损失：约束正提议的重建误差低于负提议和全局视频特征。
+
+在推理阶段，PPS将所有尺度的提议按NLL排序后，使用投票机制选择最优提议。Charades数据集上的投票采用NLL加权策略，有效降低低质量提议的投票权重。
+
+3.2 技术路线
+
+本项目的技术路线分为四个阶段：
+
+第一阶段：模型环境搭建与代码整合。为三个模型分别在其对应的Conda环境中安装依赖（PyTorch、h5py、nltk、fairseq等），下载预训练权重并验证推理功能。将三个模型的代码统一整理到同一代码仓库下，抽取公共模块（特征加载、文本处理、提议选择），保持各模型特有逻辑独立。同时编写Shell脚本简化评估流程。
+
+第二阶段：前后端系统开发。基于FastAPI框架构建两个推理服务：inference_server.py（端口8100，加载CPL和CPL-MoE，Conda环境cpl）和pps_inference_server.py（端口8200，加载PPS，Conda环境pps）。前端采用内嵌HTML单页面设计，实现视频拖拽上传、查询文本输入、模型选择按钮组和结果展示区域。
+
+第三阶段：特征工程与缓存优化。集成VSLNet的特征提取模块（InceptionI3D），编写extract_charades.py和extract_activitynet.py用于单视频I3D特征提取。设计基于MD5的缓存机制：视频文件内容和查询文本联合哈希作为缓存键，避免相同输入重复推理。编写特征对比脚本compare_features.py，支持将提取特征与HDF5中预存特征进行维度、余弦相似度和L2距离的对比分析。
+
+第四阶段：可视化与GT对比。在结果展示区域增加并排对比布局（左侧GT，右侧预测），在时间轴上叠加显示GT（灰色）和预测（蓝色）区间。前端硬编码演示视频v_DRWMUsADKFM的三条GT标注数据，支持精确文本匹配和词重叠语义匹配两种GT检索策略。界面全面中文化，包括模型选择、视频上传、查询输入和结果展示等所有交互文本。
+
+3.3 技术理论基础
+
+3.3.1 DualTransformer架构
+
+三个模型均采用DualTransformer作为核心跨模态编码器。与传统Transformer的编码器-解码器结构不同，DualTransformer由两个独立的解码器堆叠组成，不包含编码器。第一个解码器以视频帧特征为Query、文本词特征为Key/Value执行交叉注意力，生成多模态融合特征；第二个解码器以提议特征为Query、文本词特征为Key/Value，在提议高斯权重的引导下执行掩码词预测。这种设计使模型能够先建立视频-文本的整体对应关系，再聚焦于特定提议区域进行细粒度语义补全。
+
+3.3.2 高斯提议掩码机制
+
+高斯提议掩码是将时间定位转化为可微分操作的关键技术。给定提议的中心c和宽度w，在长度为T的时间轴上生成高斯权重向量w(t) = (0.3989/σ) * exp(-(t-c)^2/(2σ^2))，其中σ为超参数控制高斯函数的锐度。该权重向量作为软注意力掩码应用于第二阶段的交叉注意力计算，使模型在语义补全时聚焦于提议覆盖的时间区域。高斯掩码的可微分性确保了模型能够通过NLL损失的梯度端到端优化提议参数。
+
+3.3.3 标签平滑负对数似然损失
+
+三个模型在推理阶段均使用标签平滑的负对数似然（Label-Smoothed NLL）作为提议质量评分。计算公式为NLL = (1-ε) * (-log P(w|mask)) + ε/V * Σ(-log P(v|mask))，其中ε=0.1为平滑系数，V为词汇表大小。第一项为标准的负对数似然，第二项为均匀分布正则化项，共同构成对提议重建质量的鲁棒评估。NLL越低表示该提议覆盖的视频片段与查询文本的语义匹配度越高。
+
+3.3.4 视频特征提取（I3D）
+
+本项目的特征提取模块基于Inflated 3D ConvNet（I3D）架构。I3D通过将2D卷积核沿时间维度扩展为3D卷积核，在Kinetics-400大规模视频数据集上预训练，能够有效捕获视频的时空动态特征。特征提取流程为：视频→ffmpeg抽帧→缩放至224×224→中心裁剪→I3D滑动窗口推理→每窗口输出1024维特征向量。Charades视频使用微调后的I3D模型（rgb_charades.pt，157类动作分类头），ActivityNet视频使用ImageNet预训练模型（rgb_imagenet.pt，400类）。
+
+3.4 实验手段
+
+3.4.1 实验平台搭建
+
+硬件环境：NVIDIA GPU（11GB以上显存），支持CUDA 11.6，Intel Xeon处理器，128GB DDR4内存。
+
+软件环境：Ubuntu操作系统，Python 3.8/3.10，PyTorch 2.0.1，Conda环境管理。CPL和CPL-MoE共享cpl环境（Python 3.8），PPS使用独立的pps环境（Python 3.10）。深度学习依赖包括h5py（HDF5特征文件读取）、nltk（分词与词性标注）、fairseq（优化器和注意力模块基础类）。
+
+Web服务：FastAPI + Uvicorn，前端纯HTML/CSS/JavaScript无外部依赖，ffprobe读取视频时长。
+
+3.4.2 数据集
+
+本系统支持两个公开的视频时序定位基准数据集：
+
+ActivityNet Captions：包含约20,000个未修剪视频（总时长约849小时），每个视频平均标注3.65个时序片段和对应的自然语言描述句子。视频特征采用C3D网络提取的500维特征（预计算并存储于HDF5文件）。视频ID以"v_"为前缀。评估指标为R@1和R@5在IoU阈值0.1、0.3、0.5、0.7下的召回率。
+
+Charades-STA：包含约6,670个室内活动视频，标注有16,128对时序片段-查询文本对。视频特征采用I3D网络提取的1024维特征。视频ID为短字母数字组合（不含"v_"前缀）。评估指标为R@1和R@5在IoU阈值0.3、0.5、0.7下的召回率。
+
+3.4.3 评价指标
+
+系统在推理层面采用以下评估方式：（1）提议NLL排序：所有候选提议按重建负对数似然升序排列；（2）投票机制（ActivityNet）：计算各提议与其他提议的成对IoU之和，选择共识度最高的提议；（3）损失最小化选择（Charades）：直接选取NLL最小的提议。
+
+在可视化层面，系统将模型预测区间与Ground Truth并排展示于时间轴上，提供直观的准确性对比。时间轴同时标注预测区间和GT区间的起止秒数，并显示预测采用的选择策略（投票机制或损失最小化）。
+
+3.5 系统架构设计
+
+系统采用两层架构，分为前端展示层和后端推理层。
+
+前端展示层：单个HTML页面，包含渐变标题栏、模型选择按钮组（CPL/PPS/CPL-MoE三个圆角按钮）、视频拖拽上传区、文本查询输入框和定位结果展示卡片。按钮组默认选中CPL，用户点击切换后前端自动调整推理请求目标。结果卡片以左右并排方式展示真实标注（GT）和模型预测区间，下方为时间轴可视化（GT灰色条+预测蓝紫渐变条），底部以网格布局展示视频名称、时长、数据集、模型名称和查询文本等元信息。
+
+后端推理层：由两个独立的FastAPI服务组成。inference_server.py（端口8100，cpl环境）加载CPL和CPL-MoE共4个模型，采用懒加载策略，仅在首次请求时加载模型权重；同时serve前端HTML页面和/predict推理接口。pps_inference_server.py（端口8200，pps环境）加载PPS的2个模型，仅提供/predict接口并启用CORS跨域支持。前端选择PPS时通过JavaScript自动将请求路由至8200端口。
+
+数据处理流程：用户上传视频文件→后端提取文件名并识别数据集（v_前缀→ActivityNet，其他→Charades）→ffprobe读取视频时长→HDF5文件查找预提取特征→文本查询经nltk分词和GloVe词向量嵌入→送入选中模型进行前向推理→提议选择（投票/损失最小化）→归一化坐标×视频时长→真实秒数输出→缓存至本地JSON。
+
+缓存层：视频文件和推理结果均以MD5（视频内容+查询文本+模型名称）为键存储，相同输入自动命中缓存返回历史结果，避免重复推理。缓存目录为cache/videos/和cache/results/。
+
+四、总结与展望
+
+本实践项目围绕弱监督视频时序定位任务，完成了三项代表性方法（CPL、CPL-MoE、PPS）的代码整合和交互式推理演示系统的构建。项目的主要成果包括：（1）统一的模型对比平台，支持三个模型的自由切换和实时推理；（2）双服务架构解决跨Conda环境的模型共存问题；（3）基于内容哈希的智能缓存机制；（4）Ground Truth可视化对比功能；（5）完整的中文用户界面和直观的时间轴展示。
+
+然而，本项目仍存在以下可改进之处：（1）当前仅支持使用预提取的HDF5特征，尚未完全集成在线特征提取流水线；（2）CPL-MoE模型的预训练权重在公开渠道未找到，需自行训练或联系作者获取；（3）仅支持ActivityNet和Charades两个数据集，暂不支持用户自定义视频的零样本推理；（4）缺少批量测试和统计报告导出功能。
+
+未来工作将聚焦于以下方向：（1）完善在线特征提取流水线，实现端到端的视频上传→特征提取→模型推理→结果展示；（2）增加更多代表性方法的集成；（3）支持用户自定义视频的推理，突破数据集限制；（4）增加多模型批量对比测试和统计报告导出功能。
+
+主要参考文献
+
+[1] Minghang Zheng, Yanjie Huang, Qingchao Chen, Yuxin Peng, and Yang Liu. Weakly Supervised Temporal Sentence Grounding with Gaussian-based Contrastive Proposal Learning. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2022: 15555-15564.
+
+[2] Minghang Zheng, Yanjie Huang, Qingchao Chen, Yuxin Peng, and Yang Liu. Weakly and Single-Frame Supervised Temporal Sentence Grounding With Gaussian-Based Contrastive Proposal Learning. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI), 2025.
+
+[3] Sunoh Kim, Jungchan Cho, Joonsang Yu, YoungJoon Yoo, and Jin Young Choi. Gaussian Mixture Proposals with Pull-Push Learning Scheme to Capture Diverse Events for Weakly Supervised Temporal Video Grounding. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI), 2024: 2795-2803.
+
+[4] Jiyang Gao, Chen Sun, Zhenheng Yang, and Ram Nevatia. TALL: Temporal Activity Localization via Language Query. In Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2017: 5267-5275.
+
+[5] Lisa Anne Hendricks, Oliver Wang, Eli Shechtman, Josef Sivic, Trevor Darrell, and Bryan Russell. Localizing Moments in Video with Natural Language. In Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2017: 5803-5812.
+
+[6] Shaoxiang Chen and Yu-Gang Jiang. Semantic Activity Proposal for Temporal Sentence Grounding. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI), 2021, 43(10): 3629-3642.
+
+[7] Joao Carreira and Andrew Zisserman. Quo Vadis, Action Recognition? A New Model and the Kinetics Dataset. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017: 6299-6308.
+
+[8] Peijun Bao, Yong Xia, and Wenhan Yang. Local-Global Multi-Modal Distillation for Weakly Supervised Temporal Video Grounding. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI), 2023.
+
+[9] Meng Cao, Haoran Wei, and Peng Wu. IRON: Iterative Proposal Refinement Network for Weakly-Supervised Temporal Sentence Grounding. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2024.
+
+[10] Yuting Tan, Shaoxiang Chen, and Yu-Gang Jiang. SiamGTR: Siamese Grounding Transformer for Weakly-Supervised Video Paragraph Grounding. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2023.
