@@ -464,7 +464,7 @@ HTML = """<!DOCTYPE html>
   .header p { color: rgba(255,255,255,.75); font-size: .8rem; margin-top: 4px; }
 
   /* Two-column layout */
-  .main-row { display: flex; gap: 20px; align-items: flex-start; }
+  .main-row { display: flex; gap: 20px; align-items: stretch; }
   .main-row .left-col { flex: 1; min-width: 0; }
   .main-row .right-col { flex: 1; min-width: 0; }
 
@@ -589,18 +589,19 @@ HTML = """<!DOCTYPE html>
     <p>弱监督单视频推理 &mdash; CPL / PPS / CPL-MoE</p>
   </div>
 
-  <div class="main-row">
-    <div class="left-col">
-
-  <div class="card">
-    <!-- Model selector -->
-    <label>选择模型</label>
-    <div class="model-selector" id="model-selector">
+  <div class="card" style="padding:18px 24px; margin-bottom:20px">
+    <label style="margin-bottom:10px">选择模型</label>
+    <div class="model-selector" id="model-selector" style="margin-bottom:0">
       <div class="model-btn active" data-model="cpl">CPL</div>
       <div class="model-btn" data-model="pps">PPS</div>
       <div class="model-btn" data-model="cplmoe">CPL-MoE</div>
     </div>
+  </div>
 
+  <div class="main-row">
+    <div class="left-col">
+
+  <div class="card">
     <form id="form">
       <label>上传视频</label>
       <div class="upload-zone" id="upload-zone">
