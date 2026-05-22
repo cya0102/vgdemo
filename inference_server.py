@@ -453,20 +453,25 @@ HTML = """<!DOCTYPE html>
     background: linear-gradient(135deg, #f0f4ff 0%, #f8fafc 50%, #f0fdf4 100%);
     color: #1e293b; min-height: 100vh; padding: 40px 20px;
   }
-  .container { max-width: 680px; margin: 0 auto; }
+  .container { max-width: 1100px; margin: 0 auto; }
 
   .header {
     background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
-    border-radius: 12px; padding: 28px 32px; margin-bottom: 24px;
+    border-radius: 12px; padding: 24px 32px; margin-bottom: 20px;
     box-shadow: 0 4px 20px rgba(37,99,235,.25);
   }
-  .header h1 { font-size: 1.4rem; color: #fff; font-weight: 700; letter-spacing: -.01em; }
-  .header p { color: rgba(255,255,255,.75); font-size: .85rem; margin-top: 4px; }
+  .header h1 { font-size: 1.3rem; color: #fff; font-weight: 700; letter-spacing: -.01em; }
+  .header p { color: rgba(255,255,255,.75); font-size: .8rem; margin-top: 4px; }
+
+  /* Two-column layout */
+  .main-row { display: flex; gap: 20px; align-items: flex-start; }
+  .main-row .left-col { flex: 1; min-width: 0; }
+  .main-row .right-col { flex: 1; min-width: 0; }
 
   .card {
-    background: #fff; border-radius: 12px; padding: 28px;
+    background: #fff; border-radius: 12px; padding: 24px;
     box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-    margin-bottom: 20px; border: 1px solid #e2e8f0;
+    border: 1px solid #e2e8f0;
   }
 
   /* Model selector */
@@ -474,8 +479,8 @@ HTML = """<!DOCTYPE html>
     display: flex; gap: 10px; margin-bottom: 22px;
   }
   .model-btn {
-    flex: 1; padding: 10px 0; border: 2px solid #e2e8f0; border-radius: 24px;
-    background: #fff; color: #64748b; font-size: .85rem; font-weight: 600;
+    flex: 1; padding: 8px 0; border: 2px solid #e2e8f0; border-radius: 20px;
+    background: #fff; color: #64748b; font-size: .8rem; font-weight: 600;
     cursor: pointer; transition: all .2s; text-align: center;
   }
   .model-btn:hover { border-color: #93c5fd; color: #3b82f6; }
@@ -485,9 +490,9 @@ HTML = """<!DOCTYPE html>
 
   /* Upload zone */
   .upload-zone {
-    border: 2px dashed #cbd5e1; border-radius: 10px; padding: 28px;
+    border: 2px dashed #cbd5e1; border-radius: 10px; padding: 22px;
     text-align: center; cursor: pointer; transition: all .2s;
-    background: #f8fafc; margin-bottom: 18px;
+    background: #f8fafc; margin-bottom: 16px;
   }
   .upload-zone:hover, .upload-zone.dragover {
     border-color: #3b82f6; background: #eff6ff;
@@ -520,9 +525,9 @@ HTML = """<!DOCTYPE html>
   }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 
-  .result-card { background: #fff; border-radius: 12px; padding: 28px;
+  .result-card { background: #fff; border-radius: 12px; padding: 24px;
     box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-    border: 1px solid #e2e8f0; }
+    border: 1px solid #e2e8f0; min-height: 200px; }
   .result-card h2 { font-size: .8rem; color: #64748b; margin-bottom: 18px;
     font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
@@ -532,8 +537,8 @@ HTML = """<!DOCTYPE html>
     background: #fef2f2; border-radius: 8px; }
 
   /* Compare: GT vs Prediction */
-  .compare-row { display: flex; gap: 14px; margin-bottom: 20px; }
-  .gt-box, .pred-box { flex: 1; border-radius: 10px; padding: 18px; text-align: center; }
+  .compare-row { display: flex; gap: 10px; margin-bottom: 16px; }
+  .gt-box, .pred-box { flex: 1; border-radius: 10px; padding: 14px; text-align: center; }
   .gt-box { background: #f8fafc; border: 2px solid #cbd5e1; }
   .gt-label { font-size: .7rem; color: #64748b; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
   .gt-timestamp { font-size: 1.15rem; font-weight: 700; color: #475569; font-family: 'SF Mono', 'Menlo', monospace; }
@@ -584,6 +589,9 @@ HTML = """<!DOCTYPE html>
     <p>弱监督单视频推理 &mdash; CPL / PPS / CPL-MoE</p>
   </div>
 
+  <div class="main-row">
+    <div class="left-col">
+
   <div class="card">
     <!-- Model selector -->
     <label>选择模型</label>
@@ -610,10 +618,16 @@ HTML = """<!DOCTYPE html>
     </form>
   </div>
 
+    </div>
+    <div class="right-col">
+
   <div class="result-card">
     <h2>定位结果</h2>
     <div id="result-area">
       <div class="result-empty">上传视频并输入查询文本，然后点击"查找片段"。</div>
+    </div>
+  </div>
+
     </div>
   </div>
 
